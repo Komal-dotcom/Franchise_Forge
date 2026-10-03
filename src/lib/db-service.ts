@@ -2,13 +2,17 @@ import {
   AIEvaluation,
   AuditLog,
   CSVRow,
+  CompetitionLifecycleSettings,
   FinalScore,
   ImportSummary,
   Round1Submission,
   Round2Submission,
-  Round3AIEvaluation,
+  Round3ManualScore,
   Round3Submission,
+  RoundControlState,
+  RoundLifecycleStatus,
   Team,
+  TeamDossierData,
   TeamMember,
   TeamWithMembers,
 } from '@/types';
@@ -16,7 +20,7 @@ import { inMemoryDB, supabaseAdmin } from './supabase';
 import { hashAccessCode } from './auth';
 import { logAuditEvent, getAuditLogs } from './audit';
 export { getAuditLogs };
-import { executeAIJudgingPipeline, executeRound3AIJudgingPipeline } from './ai';
+import { executeAIJudgingPipeline } from './ai';
 
 /**
  * Commits parsed CSV imported teams into database
@@ -116,7 +120,6 @@ export async function getTeamByCode(teamCode: string): Promise<Team | null> {
   const cleanCode = teamCode.trim().toUpperCase();
   const normalizedCleanCode = cleanCode.replace(/[^A-Z0-9]/gi, '');
 
-  // 1. First check inMemoryDB (preserves imported team credentials in dev/offline mode)
   for (const team of inMemoryDB.teams.values()) {
     const code = (team.team_code || '').trim().toUpperCase();
     const name = (team.team_name || '').trim().toUpperCase();
@@ -127,7 +130,6 @@ export async function getTeamByCode(teamCode: string): Promise<Team | null> {
     }
   }
 
-  // 2. Fall back to Supabase query
   try {
     const { data, error } = await supabaseAdmin
       .from('teams')
@@ -136,90 +138,82 @@ export async function getTeamByCode(teamCode: string): Promise<Team | null> {
       .single();
 
     if (!error && data) return data as Team;
-  } catch (err) {
-    // Fall back to memory DB
-  }
+  } catch (err) { }
 
   return null;
 }
-
-
 
 /**
  * Gets team details with members roster
  */
 export async function getTeamWithMembers(teamId: string): Promise<TeamWithMembers | null> {
-  let team: Team | null = null;
-  let members: TeamMember[] = [];
-
-  try {
-    const [{ data: teamData }, { data: membersData }] = await Promise.all([
-      supabaseAdmin.from('teams').select('*').eq('id', teamId).single(),
-      supabaseAdmin.from('team_members').select('*').eq('team_id', teamId),
-    ]);
-    if (teamData) team = teamData as Team;
-    if (membersData) members = membersData as TeamMember[];
-  } catch (err) {
-    // Memory fallback
-  }
+  let team: Team | undefined = inMemoryDB.teams.get(teamId);
 
   if (!team) {
-    team = inMemoryDB.teams.get(teamId) || null;
-    members = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === teamId);
+    try {
+      const { data } = await supabaseAdmin.from('teams').select('*').eq('id', teamId).single();
+      if (data) team = data as Team;
+    } catch (e) { }
   }
 
   if (!team) return null;
+
+  let members: TeamMember[] = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === teamId);
+
+  if (members.length === 0) {
+    try {
+      const { data } = await supabaseAdmin.from('team_members').select('*').eq('team_id', teamId);
+      if (data && data.length > 0) members = data as TeamMember[];
+    } catch (e) { }
+  }
+
   return { ...team, members };
 }
 
 /**
- * Gets all teams with members
+ * Gets all teams with member rosters
  */
-export async function getAllTeams(): Promise<TeamWithMembers[]> {
-  const teams: TeamWithMembers[] = [];
+export async function getAllTeamsWithMembers(): Promise<TeamWithMembers[]> {
+  const teamsMap = new Map<string, TeamWithMembers>();
+
+
+  for (const team of inMemoryDB.teams.values()) {
+    const members = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === team.id);
+    teamsMap.set(team.id, { ...team, members });
+  }
 
   try {
-    const [{ data: teamRows }, { data: allMembers }] = await Promise.all([
-      supabaseAdmin.from('teams').select('*').order('created_at', { ascending: true }),
-      supabaseAdmin.from('team_members').select('*'),
-    ]);
-
-    if (teamRows && teamRows.length > 0) {
-      const membersMap = new Map<string, TeamMember[]>();
-      if (allMembers) {
-        for (const m of allMembers as TeamMember[]) {
-          if (!membersMap.has(m.team_id)) membersMap.set(m.team_id, []);
-          membersMap.get(m.team_id)!.push(m);
-        }
-      }
-
-      for (const t of teamRows) {
-        teams.push({
-          ...(t as Team),
-          members: membersMap.get(t.id) || [],
+    const { data: dbTeams } = await supabaseAdmin.from('teams').select('*, team_members(*)');
+    if (dbTeams) {
+      dbTeams.forEach((t: any) => {
+        teamsMap.set(t.id, {
+          id: t.id,
+          team_code: t.team_code,
+          team_name: t.team_name,
+          access_code_hash: t.access_code_hash,
+          current_round: t.current_round,
+          status: t.status,
+          created_at: t.created_at,
+          updated_at: t.updated_at,
+          members: t.team_members || [],
         });
-      }
-      return teams;
+      });
     }
-  } catch (err) {
-    // Fall through to memory DB
-  }
+  } catch (e) { }
 
-  for (const t of inMemoryDB.teams.values()) {
-    const m = Array.from(inMemoryDB.teamMembers.values()).filter((mem) => mem.team_id === t.id);
-    teams.push({ ...t, members: m });
-  }
-
-  return teams;
+  return Array.from(teamsMap.values());
 }
+
+export const getAllTeams = getAllTeamsWithMembers;
+
 
 /**
  * Round 1 Submission handling
  */
 export async function upsertRound1Submission(sub: Partial<Round1Submission> & { team_id: string }): Promise<Round1Submission> {
   const existing = Array.from(inMemoryDB.round1Submissions.values()).find((r) => r.team_id === sub.team_id);
-
   const now = new Date().toISOString();
+
   const record: Round1Submission = {
     id: existing?.id || (typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2)),
     team_id: sub.team_id,
@@ -302,7 +296,6 @@ export async function upsertRound2Submission(sub: Partial<Round2Submission> & { 
     entity_id: record.id,
   });
 
-  // If submitted, trigger AI Judging pipeline immediately or in background queue
   if (sub.status === 'SUBMITTED' || sub.status === 'PENDING_AI') {
     triggerAIJudgeForSubmission(record.id).catch(console.error);
   }
@@ -335,6 +328,13 @@ export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<
   const evalResult = await executeAIJudgingPipeline(sub);
   const now = new Date().toISOString();
 
+  let processingStatus: 'COMPLETED' | 'REVIEW_REQUIRED' | 'FAILED' | 'DISQUALIFIED' = 'COMPLETED';
+  if (evalResult.safety.status === 'FAIL' || evalResult.decision === 'DISQUALIFIED') {
+    processingStatus = 'DISQUALIFIED';
+  } else if (evalResult.safety.status === 'REVIEW_REQUIRED' || evalResult.decision === 'REVIEW_REQUIRED') {
+    processingStatus = 'REVIEW_REQUIRED';
+  }
+
   const aiEvalRecord: AIEvaluation = {
     id: typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2),
     round2_submission_id: round2SubId,
@@ -349,6 +349,7 @@ export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<
     prompt_image_consistency_score: evalResult.scores.prompt_image_consistency,
     total_score: evalResult.total_score,
     decision: evalResult.decision,
+    evaluation_status: processingStatus,
     feedback: evalResult.feedback,
     evaluated_at: now,
     created_at: now,
@@ -356,28 +357,20 @@ export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<
 
   inMemoryDB.aiEvaluations.set(aiEvalRecord.id, aiEvalRecord);
 
-  // Update submission status to EVALUATED
   sub.status = 'EVALUATED';
   sub.updated_at = now;
-
-  // Update team status if DISQUALIFIED or QUALIFIED
-  const team = inMemoryDB.teams.get(sub.team_id);
-  if (team) {
-    if (evalResult.decision === 'DISQUALIFIED') {
-      team.status = 'DISQUALIFIED';
-    } else if (evalResult.decision === 'QUALIFIED') {
-      team.status = 'QUALIFIED';
-      team.current_round = 3;
-    }
-  }
 
   try {
     await supabaseAdmin.from('ai_evaluations').upsert(aiEvalRecord);
     await supabaseAdmin.from('round2_submissions').update({ status: 'EVALUATED', updated_at: now }).eq('id', round2SubId);
-    if (team) {
-      await supabaseAdmin.from('teams').update({ status: team.status, current_round: team.current_round }).eq('id', team.id);
-    }
   } catch (e) { }
+
+  // Update team qualification status if passed or disqualified
+  if (evalResult.decision === 'QUALIFIED') {
+    await updateTeamAndMembers(sub.team_id, { status: 'QUALIFIED' });
+  } else if (evalResult.decision === 'DISQUALIFIED' || evalResult.safety.status === 'FAIL') {
+    await updateTeamAndMembers(sub.team_id, { status: 'DISQUALIFIED' });
+  }
 
   await logAuditEvent({
     actor: 'SYSTEM_AI_JUDGE',
@@ -387,8 +380,8 @@ export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<
     metadata: {
       team_id: sub.team_id,
       decision: evalResult.decision,
-      total_score: evalResult.total_score,
       safety_status: evalResult.safety.status,
+      total_score: evalResult.total_score,
     },
   });
 
@@ -405,7 +398,7 @@ export async function getAIEvaluationBySubmissionId(round2SubId: string): Promis
 }
 
 /**
- * Round 3 Submission handling
+ * Round 3 Submission handling (Human Manual Judging ONLY)
  */
 export async function upsertRound3Submission(sub: Partial<Round3Submission> & { team_id: string }): Promise<Round3Submission> {
   const existing = Array.from(inMemoryDB.round3Submissions.values()).find((r) => r.team_id === sub.team_id);
@@ -438,10 +431,6 @@ export async function upsertRound3Submission(sub: Partial<Round3Submission> & { 
     entity_id: record.id,
   });
 
-  if (sub.status === 'SUBMITTED' || sub.status === 'PENDING_AI') {
-    triggerAIJudgeForRound3Submission(record.id).catch(console.error);
-  }
-
   return record;
 }
 
@@ -455,78 +444,107 @@ export async function getRound3Submission(teamId: string): Promise<Round3Submiss
 }
 
 /**
- * Triggers AI evaluation for a Round 3 Submission
+ * Round 3 Manual Judging Score Submissions
  */
-export async function triggerAIJudgeForRound3Submission(round3SubId: string): Promise<Round3AIEvaluation> {
-  let sub: Round3Submission | undefined;
-  for (const s of inMemoryDB.round3Submissions.values()) {
-    if (s.id === round3SubId) { sub = s; break; }
-  }
-
-  if (!sub) {
-    throw new Error('Round 3 Submission not found');
-  }
-
-  const evalResult = await executeRound3AIJudgingPipeline(sub);
+export async function submitRound3ManualScore(
+  round3SubId: string,
+  teamId: string,
+  judgeId: string,
+  judgeName: string,
+  scores: {
+    marketing_strategy_score: number;
+    tagline_punch_score: number;
+    audience_engagement_score: number;
+    copywriting_quality_score: number;
+    visual_poster_quality_score: number;
+  },
+  comments?: string,
+  status: 'DRAFT' | 'SUBMITTED' | 'LOCKED' = 'SUBMITTED'
+): Promise<Round3ManualScore> {
   const now = new Date().toISOString();
+  
+  // Calculate total score programmatically (Max 100)
+  const mkt = Math.min(25, Math.max(0, scores.marketing_strategy_score || 0));
+  const tag = Math.min(20, Math.max(0, scores.tagline_punch_score || 0));
+  const aud = Math.min(20, Math.max(0, scores.audience_engagement_score || 0));
+  const copy = Math.min(20, Math.max(0, scores.copywriting_quality_score || 0));
+  const post = Math.min(15, Math.max(0, scores.visual_poster_quality_score || 0));
+  
+  const total_score = mkt + tag + aud + copy + post;
 
-  const r3AiEvalRecord: Round3AIEvaluation = {
-    id: typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2),
+  const existingScore = Array.from(inMemoryDB.round3ManualScores.values()).find(
+    (s) => s.round3_submission_id === round3SubId && s.judge_id === judgeId
+  );
+
+  const record: Round3ManualScore = {
+    id: existingScore?.id || (typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2)),
     round3_submission_id: round3SubId,
-    marketing_strategy_score: evalResult.scores.marketing_strategy,
-    tagline_punch_score: evalResult.scores.tagline_punch,
-    audience_engagement_score: evalResult.scores.audience_engagement,
-    copywriting_quality_score: evalResult.scores.copywriting_quality,
-    visual_poster_quality_score: evalResult.scores.visual_poster_quality,
-    total_score: evalResult.total_score,
-    decision: evalResult.decision,
-    feedback: evalResult.feedback,
-    evaluated_at: now,
-    created_at: now,
+    team_id: teamId,
+    judge_id: judgeId,
+    judge_name: judgeName,
+    marketing_strategy_score: mkt,
+    tagline_punch_score: tag,
+    audience_engagement_score: aud,
+    copywriting_quality_score: copy,
+    visual_poster_quality_score: post,
+    total_score,
+    comments: comments || '',
+    status,
+    created_at: existingScore?.created_at || now,
+    updated_at: now,
   };
 
-  inMemoryDB.round3AIEvaluations.set(r3AiEvalRecord.id, r3AiEvalRecord);
-
-  sub.status = 'EVALUATED';
-  sub.updated_at = now;
+  inMemoryDB.round3ManualScores.set(record.id, record);
 
   try {
-    await supabaseAdmin.from('round3_ai_evaluations').upsert(r3AiEvalRecord);
-    await supabaseAdmin.from('round3_submissions').update({ status: 'EVALUATED', updated_at: now }).eq('id', round3SubId);
+    await supabaseAdmin.from('round3_manual_scores').upsert(record);
   } catch (e) { }
+
+  // Update submission status to EVALUATED if submitted
+  const r3sub = Array.from(inMemoryDB.round3Submissions.values()).find((r) => r.id === round3SubId);
+  if (r3sub && status === 'SUBMITTED') {
+    r3sub.status = 'EVALUATED';
+    inMemoryDB.round3Submissions.set(r3sub.id, r3sub);
+  }
 
   await logAuditEvent({
-    actor: 'SYSTEM_ROUND3_AI_JUDGE',
-    action: 'ROUND3_AI_EVALUATION_COMPLETED',
-    entity: 'ROUND3_AI_EVALUATION',
-    entity_id: r3AiEvalRecord.id,
-    metadata: {
-      team_id: sub.team_id,
-      decision: evalResult.decision,
-      total_score: evalResult.total_score,
-    },
+    actor: `JUDGE:${judgeId}:${judgeName}`,
+    action: 'SUBMIT_ROUND3_MANUAL_SCORE',
+    entity: 'ROUND3_MANUAL_SCORE',
+    entity_id: record.id,
+    metadata: { team_id: teamId, total_score, status },
   });
 
-  return r3AiEvalRecord;
+  return record;
 }
 
-export async function getRound3AIEvaluationBySubmissionId(round3SubId: string): Promise<Round3AIEvaluation | null> {
+export async function getRound3ManualScoresForSubmission(round3SubId: string): Promise<Round3ManualScore[]> {
   try {
-    const { data } = await supabaseAdmin.from('round3_ai_evaluations').select('*').eq('round3_submission_id', round3SubId).single();
-    if (data) return data as Round3AIEvaluation;
+    const { data } = await supabaseAdmin.from('round3_manual_scores').select('*').eq('round3_submission_id', round3SubId);
+    if (data && data.length > 0) return data as Round3ManualScore[];
   } catch (e) { }
 
-  return Array.from(inMemoryDB.round3AIEvaluations.values()).find((a) => a.round3_submission_id === round3SubId) || null;
+  return Array.from(inMemoryDB.round3ManualScores.values()).filter((s) => s.round3_submission_id === round3SubId);
+}
+
+export async function getRound3ManualScoresForTeam(teamId: string): Promise<Round3ManualScore[]> {
+  try {
+    const { data } = await supabaseAdmin.from('round3_manual_scores').select('*').eq('team_id', teamId);
+    if (data && data.length > 0) return data as Round3ManualScore[];
+  } catch (e) { }
+
+  return Array.from(inMemoryDB.round3ManualScores.values()).filter((s) => s.team_id === teamId);
 }
 
 /**
  * Offline Final Pitch Human Scores handling
  */
-export async function addFinalScore(teamId: string, judgeId: string, score: number, comments?: string): Promise<FinalScore> {
+export async function addFinalScore(teamId: string, judgeId: string, score: number, comments?: string, judgeName?: string): Promise<FinalScore> {
   const record: FinalScore = {
     id: typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2),
     team_id: teamId,
     judge_id: judgeId,
+    judge_name: judgeName || `Judge ${judgeId}`,
     score,
     comments: comments || '',
     created_at: new Date().toISOString(),
@@ -565,9 +583,13 @@ export async function adminOverrideSafety(round2SubId: string, newSafetyStatus: 
   const aiEval = await getAIEvaluationBySubmissionId(round2SubId);
   if (!aiEval) throw new Error('AI Evaluation not found');
 
+  const prevSafety = aiEval.safety_status;
+  const prevDecision = aiEval.decision;
+
   aiEval.safety_status = newSafetyStatus;
   aiEval.safety_reason = `Admin Override: ${reason}`;
-  aiEval.decision = newSafetyStatus === 'PASS' ? 'QUALIFIED' : 'DISQUALIFIED';
+  aiEval.decision = newSafetyStatus === 'PASS' ? (aiEval.total_score >= 70 ? 'QUALIFIED' : 'DISQUALIFIED') : 'DISQUALIFIED';
+  aiEval.evaluation_status = newSafetyStatus === 'PASS' ? (aiEval.total_score >= 70 ? 'COMPLETED' : 'DISQUALIFIED') : 'DISQUALIFIED';
 
   inMemoryDB.aiEvaluations.set(aiEval.id, aiEval);
 
@@ -579,15 +601,50 @@ export async function adminOverrideSafety(round2SubId: string, newSafetyStatus: 
     }).eq('id', aiEval.id);
   } catch (e) { }
 
+  const sub = Array.from(inMemoryDB.round2Submissions.values()).find((s) => s.id === round2SubId);
+  if (sub) {
+    await updateTeamAndMembers(sub.team_id, {
+      status: aiEval.decision === 'QUALIFIED' ? 'QUALIFIED' : 'DISQUALIFIED',
+    });
+  }
+
   await logAuditEvent({
     actor: 'ADMIN',
     action: 'ADMIN_SAFETY_OVERRIDE',
     entity: 'AI_EVALUATION',
     entity_id: aiEval.id,
-    metadata: { new_status: newSafetyStatus, reason },
+    previous_value: { safety_status: prevSafety, decision: prevDecision },
+    new_value: { safety_status: newSafetyStatus, decision: aiEval.decision },
+    reason,
   });
 
   return aiEval;
+}
+
+/**
+ * Explicit Admin Qualification Override for a Team
+ */
+export async function overrideTeamQualification(
+  teamId: string,
+  newStatus: 'ACTIVE' | 'QUALIFIED' | 'DISQUALIFIED' | 'ELIMINATED',
+  reason: string
+): Promise<TeamWithMembers | null> {
+  const team = inMemoryDB.teams.get(teamId);
+  const prevStatus = team?.status || 'UNKNOWN';
+
+  const updated = await updateTeamAndMembers(teamId, { status: newStatus });
+
+  await logAuditEvent({
+    actor: 'ADMIN',
+    action: 'ADMIN_QUALIFICATION_OVERRIDE',
+    entity: 'TEAM',
+    entity_id: teamId,
+    previous_value: prevStatus,
+    new_value: newStatus,
+    reason,
+  });
+
+  return updated;
 }
 
 /**
@@ -655,7 +712,6 @@ export async function updateTeamAndMembers(
  * Deletes a team and all associated members and submissions
  */
 export async function deleteTeam(teamId: string): Promise<boolean> {
-  // Remove from memory
   inMemoryDB.teams.delete(teamId);
   for (const [id, mem] of inMemoryDB.teamMembers.entries()) {
     if (mem.team_id === teamId) inMemoryDB.teamMembers.delete(id);
@@ -675,56 +731,184 @@ export async function deleteTeam(teamId: string): Promise<boolean> {
   return true;
 }
 
-export interface RoundSettings {
-  round1: 'OPEN' | 'CLOSED';
-  round2: 'OPEN' | 'CLOSED';
-  round3: 'OPEN' | 'CLOSED';
-  top5_locked: boolean;
-}
-
 /**
- * Gets competition round status settings
+ * Authoritative Round Lifecycle Settings
  */
-export async function getRoundSettings(): Promise<RoundSettings> {
-  const defaultSettings: RoundSettings = { round1: 'OPEN', round2: 'OPEN', round3: 'CLOSED', top5_locked: false };
+export async function getCompetitionLifecycle(): Promise<CompetitionLifecycleSettings> {
+  const defaultLifecycle: CompetitionLifecycleSettings = {
+    active_round: 1,
+    round1: { status: 'OPEN', last_changed_at: new Date().toISOString(), last_changed_by: 'SYSTEM' },
+    round2: { status: 'STANDBY', last_changed_at: new Date().toISOString(), last_changed_by: 'SYSTEM' },
+    round3: { status: 'STANDBY', manual_judging_open: false, last_changed_at: new Date().toISOString(), last_changed_by: 'SYSTEM' },
+    top5_locked: false,
+    ai_queue_paused: false,
+  };
 
-  const memSettings = inMemoryDB.settings.get('round_status');
+  const memSettings = inMemoryDB.settings.get('round_lifecycle');
   if (memSettings) {
-    return { ...defaultSettings, ...memSettings };
+    return { ...defaultLifecycle, ...memSettings };
   }
 
   try {
-    const { data } = await supabaseAdmin.from('settings').select('*').eq('key', 'round_status').single();
+    const { data } = await supabaseAdmin.from('settings').select('*').eq('key', 'round_lifecycle').single();
     if (data && data.value) {
-      return { ...defaultSettings, ...data.value };
+      return { ...defaultLifecycle, ...data.value };
     }
-  } catch (err) {}
+  } catch (err) { }
 
-  inMemoryDB.settings.set('round_status', defaultSettings);
-  return defaultSettings;
+  inMemoryDB.settings.set('round_lifecycle', defaultLifecycle);
+  return defaultLifecycle;
 }
 
-/**
- * Updates competition round status settings
- */
-export async function updateRoundSettings(newSettings: Partial<RoundSettings>): Promise<RoundSettings> {
-  const current = await getRoundSettings();
-  const updated: RoundSettings = { ...current, ...newSettings };
+export async function updateRoundLifecycle(
+  updates: Partial<CompetitionLifecycleSettings>,
+  actor: string = 'ADMIN',
+  reason?: string
+): Promise<CompetitionLifecycleSettings> {
+  const current = await getCompetitionLifecycle();
+  const updated: CompetitionLifecycleSettings = {
+    ...current,
+    ...updates,
+    round1: updates.round1 ? { ...current.round1, ...updates.round1, last_changed_at: new Date().toISOString(), last_changed_by: actor } : current.round1,
+    round2: updates.round2 ? { ...current.round2, ...updates.round2, last_changed_at: new Date().toISOString(), last_changed_by: actor } : current.round2,
+    round3: updates.round3 ? { ...current.round3, ...updates.round3, last_changed_at: new Date().toISOString(), last_changed_by: actor } : current.round3,
+  };
 
-  inMemoryDB.settings.set('round_status', updated);
+  inMemoryDB.settings.set('round_lifecycle', updated);
 
   try {
-    await supabaseAdmin.from('settings').upsert({ key: 'round_status', value: updated });
-  } catch (err) {}
+    await supabaseAdmin.from('settings').upsert({ key: 'round_lifecycle', value: updated });
+  } catch (err) { }
 
   await logAuditEvent({
-    actor: 'ADMIN',
-    action: 'UPDATE_ROUND_SETTINGS',
-    entity: 'SETTINGS',
-    entity_id: 'round_status',
-    metadata: updated,
+    actor,
+    action: 'UPDATE_ROUND_LIFECYCLE',
+    entity: 'LIFECYCLE_SETTINGS',
+    entity_id: 'round_lifecycle',
+    previous_value: current,
+    new_value: updated,
+    reason: reason || 'Admin state transition',
   });
 
   return updated;
 }
 
+/**
+ * Gets legacy round settings for backward compatibility
+ */
+export async function getRoundSettings(): Promise<{ round1: 'OPEN' | 'CLOSED'; round2: 'OPEN' | 'CLOSED'; round3: 'OPEN' | 'CLOSED'; top5_locked: boolean }> {
+  const lc = await getCompetitionLifecycle();
+  return {
+    round1: lc.round1.status === 'OPEN' ? 'OPEN' : 'CLOSED',
+    round2: lc.round2.status === 'OPEN' ? 'OPEN' : 'CLOSED',
+    round3: lc.round3.status === 'OPEN' ? 'OPEN' : 'CLOSED',
+    top5_locked: lc.top5_locked,
+  };
+}
+
+export async function updateRoundSettings(newSettings: Partial<{ round1: 'OPEN' | 'CLOSED'; round2: 'OPEN' | 'CLOSED'; round3: 'OPEN' | 'CLOSED'; top5_locked: boolean }>): Promise<{ round1: 'OPEN' | 'CLOSED'; round2: 'OPEN' | 'CLOSED'; round3: 'OPEN' | 'CLOSED'; top5_locked: boolean }> {
+  const currentLc = await getCompetitionLifecycle();
+  const updates: Partial<CompetitionLifecycleSettings> = {};
+
+  if (newSettings.round1) updates.round1 = { ...currentLc.round1, status: newSettings.round1 === 'OPEN' ? 'OPEN' : 'LOCKED' };
+  if (newSettings.round2) updates.round2 = { ...currentLc.round2, status: newSettings.round2 === 'OPEN' ? 'OPEN' : 'LOCKED' };
+  if (newSettings.round3) updates.round3 = { ...currentLc.round3, status: newSettings.round3 === 'OPEN' ? 'OPEN' : 'LOCKED' };
+  if (newSettings.top5_locked !== undefined) updates.top5_locked = newSettings.top5_locked;
+
+  await updateRoundLifecycle(updates, 'ADMIN', 'Legacy settings toggle');
+  return getRoundSettings();
+}
+
+/**
+ * Complete Team Inspection / Dossier Generator
+ */
+export async function getTeamDossier(teamId: string): Promise<TeamDossierData | null> {
+  const teamWithMembers = await getTeamWithMembers(teamId);
+  if (!teamWithMembers) return null;
+
+  const round1 = await getRound1Submission(teamId);
+  const round2 = await getRound2Submission(teamId);
+  let round2Evaluation: AIEvaluation | null = null;
+
+  if (round2) {
+    round2Evaluation = await getAIEvaluationBySubmissionId(round2.id);
+  }
+
+  const round3 = await getRound3Submission(teamId);
+  const round3ManualScores = await getRound3ManualScoresForTeam(teamId);
+  const finalScores = await getFinalScoresForTeam(teamId);
+  const allLogs = await getAuditLogs();
+  const teamLogs = allLogs.filter(
+    (l) => l.entity_id === teamId || l.metadata?.team_id === teamId || l.actor === `TEAM:${teamId}`
+  );
+
+  return {
+    team: teamWithMembers,
+    members: teamWithMembers.members,
+    round1,
+    round2,
+    round2Evaluation,
+    round3,
+    round3ManualScores,
+    finalScores,
+    auditLogs: teamLogs,
+  };
+}
+
+/**
+ * Retrieves all teams with full inspection summaries for Admin Dashboard
+ */
+export async function getTeamsWithFullInspection(): Promise<Array<{
+  team: Team;
+  members: TeamMember[];
+  round1Status: 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED' | 'LOCKED';
+  round2Status: 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED' | 'PENDING_AI' | 'EVALUATED' | 'LOCKED';
+  round2SafetyStatus?: string;
+  round2Score?: number;
+  round2Decision?: string;
+  round3Status: 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED' | 'EVALUATED' | 'LOCKED';
+  round3AverageScore?: number;
+  finalScoreAverage?: number;
+}>> {
+  const teams = await getAllTeamsWithMembers();
+  const result = [];
+
+  for (const team of teams) {
+    const r1 = await getRound1Submission(team.id);
+    const r2 = await getRound2Submission(team.id);
+    let r2Eval: AIEvaluation | null = null;
+    if (r2) {
+      r2Eval = await getAIEvaluationBySubmissionId(r2.id);
+    }
+    const r3 = await getRound3Submission(team.id);
+    const r3Scores = await getRound3ManualScoresForTeam(team.id);
+    const fScores = await getFinalScoresForTeam(team.id);
+
+    let r3Avg = 0;
+    if (r3Scores.length > 0) {
+      const sum = r3Scores.reduce((acc, curr) => acc + curr.total_score, 0);
+      r3Avg = Math.round((sum / r3Scores.length) * 10) / 10;
+    }
+
+    let fAvg = 0;
+    if (fScores.length > 0) {
+      const sum = fScores.reduce((acc, curr) => acc + curr.score, 0);
+      fAvg = Math.round((sum / fScores.length) * 10) / 10;
+    }
+
+    result.push({
+      team,
+      members: team.members,
+      round1Status: r1 ? r1.status : ('NOT_STARTED' as const),
+      round2Status: r2 ? r2.status : ('NOT_STARTED' as const),
+      round2SafetyStatus: r2Eval?.safety_status,
+      round2Score: r2Eval?.total_score,
+      round2Decision: r2Eval?.decision,
+      round3Status: r3 ? r3.status : ('NOT_STARTED' as const),
+      round3AverageScore: r3Scores.length > 0 ? r3Avg : undefined,
+      finalScoreAverage: fScores.length > 0 ? fAvg : undefined,
+    });
+  }
+
+  return result;
+}

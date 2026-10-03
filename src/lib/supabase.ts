@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'mock-anon-key';
@@ -21,12 +21,19 @@ class InMemoryDatabase {
   round2Submissions: Map<string, any> = new Map();
   aiEvaluations: Map<string, any> = new Map();
   round3Submissions: Map<string, any> = new Map();
-  round3AIEvaluations: Map<string, any> = new Map();
+  round3ManualScores: Map<string, any> = new Map();
   finalScores: Map<string, any> = new Map();
   auditLogs: any[] = [];
   settings: Map<string, any> = new Map<string, any>([
     ['active_round', 1],
-    ['round_status', { round1: 'OPEN', round2: 'CLOSED', round3: 'CLOSED', top5_locked: false }],
+    ['round_lifecycle', {
+      active_round: 1,
+      round1: { status: 'OPEN', last_changed_at: new Date().toISOString(), last_changed_by: 'SYSTEM' },
+      round2: { status: 'STANDBY', last_changed_at: new Date().toISOString(), last_changed_by: 'SYSTEM' },
+      round3: { status: 'STANDBY', manual_judging_open: false, last_changed_at: new Date().toISOString(), last_changed_by: 'SYSTEM' },
+      top5_locked: false,
+      ai_queue_paused: false,
+    }],
     ['rubric_weights', {
       character_development: 30,
       relationship: 20,
@@ -79,4 +86,3 @@ if (inMemoryDB.teams.size === 0) {
     created_at: new Date().toISOString(),
   });
 }
-

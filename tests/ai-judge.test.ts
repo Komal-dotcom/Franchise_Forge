@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { executeAIJudgingPipeline } from '../src/lib/ai';
+import { submitRound3ManualScore } from '../src/lib/db-service';
 import { Round2Submission } from '../src/types';
 
 describe('AI Judge & Safety Pipeline', () => {
@@ -79,26 +80,25 @@ describe('AI Judge & Safety Pipeline', () => {
     expect(evalResult.total_score).toBe(0);
   });
 
-  it('should evaluate Round 3 marketing campaign with the Round 3 AI Judge', async () => {
-    const { executeRound3AIJudgingPipeline } = await import('../src/lib/ai');
-    const r3Submission = {
-      id: 'r3-sub-001',
-      team_id: 'team-001',
-      marketing_angle: 'High-concept transmedia positioning bridging web3 gaming and cinematic horror',
-      intended_audience_response: 'Evoke intense viral excitement among dark fantasy enthusiasts',
-      tagline: 'In a world controlled by algorithms, human spirit is the ultimate glitch.',
-      promotional_copy: 'Experience the next generation cinematic franchise where choices reshape the void.',
-      promotional_asset_s3_path: 'submissions/team-001/round3/poster.png',
-      status: 'SUBMITTED' as const,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+  it('should process Round 3 manual human judge scores correctly', async () => {
+    const manualScore = await submitRound3ManualScore(
+      'r3-sub-001',
+      'team-001',
+      'judge-1',
+      'Judge Sarah',
+      {
+        marketing_strategy_score: 22,
+        tagline_punch_score: 18,
+        audience_engagement_score: 18,
+        copywriting_quality_score: 17,
+        visual_poster_quality_score: 13,
+      },
+      'Excellent marketing narrative and strong tagline.'
+    );
 
-    const evalResult = await executeRound3AIJudgingPipeline(r3Submission);
-
-    expect(evalResult.total_score).toBeGreaterThan(60);
-    expect(evalResult.decision).toMatch(/WINNER_CANDIDATE|QUALIFIED/);
-    expect(evalResult.feedback.length).toBeGreaterThan(0);
+    expect(manualScore.total_score).toBe(88);
+    expect(manualScore.judge_name).toBe('Judge Sarah');
+    expect(manualScore.status).toBe('SUBMITTED');
   });
 
   it('should give lower scores for sparse details and higher scores for creative detailed answers', async () => {
@@ -152,7 +152,7 @@ describe('AI Judge & Safety Pipeline', () => {
     expect(detailedEval.total_score).toBeGreaterThan(sparseEval.total_score);
   });
 
-  it('should guarantee strictly unique total scores for all teams', async () => {
+  it('should compute exact programmatic rubric total scores without artificial score manipulation', async () => {
     const subA: Round2Submission = {
       id: 'sub-A',
       team_id: 'team-A',
@@ -167,41 +167,18 @@ describe('AI Judge & Safety Pipeline', () => {
       updated_at: new Date().toISOString(),
     };
 
-    const subB: Round2Submission = {
-      id: 'sub-B',
-      team_id: 'team-B',
-      hero_data: { name: 'Alpha Hero', personality: 'Bold', goal: 'Protect realm', strengths: 'Magic', weakness: 'Pride', conflict: 'War', description: 'A valiant hero.' },
-      villain_data: { name: 'Alpha Villain', personality: 'Ruthless', goal: 'Conquer realm', strengths: 'Shadows', weakness: 'Light', conflict: 'War', description: 'A dark warlord.' },
-      hero_prompt: 'Cinematic photo of Alpha Hero',
-      villain_prompt: 'Cinematic photo of Alpha Villain',
-      hero_villain_relationship: 'Arch-rivals',
-      hero_villain_conflict: 'Struggle for the throne',
-      status: 'SUBMITTED',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
     const evalA = await executeAIJudgingPipeline(subA);
-    // Simulate DB storing evalA
-    const { inMemoryDB } = await import('../src/lib/supabase');
-    inMemoryDB.aiEvaluations.set('eval-A', {
-      id: 'eval-A',
-      round2_submission_id: subA.id,
-      total_score: evalA.total_score,
-      character_development_score: evalA.scores.character_development,
-      relationship_score: evalA.scores.relationship,
-      originality_score: evalA.scores.originality,
-      visual_quality_score: evalA.scores.visual_quality,
-      prompt_quality_score: evalA.scores.prompt_quality,
-      prompt_image_consistency_score: evalA.scores.prompt_image_consistency,
-      decision: evalA.decision,
-      safety_status: 'PASS',
-      feedback: evalA.feedback,
-      created_at: new Date().toISOString(),
-    });
 
-    const evalB = await executeAIJudgingPipeline(subB);
+    const calculatedSum = 
+      evalA.scores.character_development +
+      evalA.scores.relationship +
+      evalA.scores.originality +
+      evalA.scores.visual_quality +
+      evalA.scores.prompt_quality +
+      evalA.scores.prompt_image_consistency;
 
-    expect(evalA.total_score).not.toBe(evalB.total_score);
+    expect(evalA.total_score).toBe(calculatedSum);
+    expect(evalA.total_score).toBeLessThanOrEqual(100);
+    expect(evalA.total_score).toBeGreaterThanOrEqual(0);
   });
 });

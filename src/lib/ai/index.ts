@@ -1,135 +1,7 @@
-import { AIProvider, EvaluationResult, Round3EvaluationResult, RubricScores, Round3RubricScores, SafetyCheckResult } from './types';
+import { AIProvider, EvaluationResult, RubricScores, SafetyCheckResult } from './types';
 import { MockAIProvider } from './mock-provider';
 import { LocalOllamaProvider } from './ollama-provider';
-import { Round2Submission, Round3Submission } from '@/types';
-import { inMemoryDB } from '../supabase';
-
-/**
- * Ensures that the total score for Round 2 is strictly unique across all evaluated teams.
- */
-function ensureUniqueRound2Score(scores: RubricScores, currentSubmissionId: string): { scores: RubricScores; total_score: number } {
-  const existingScores = new Set<number>();
-  for (const evalRec of inMemoryDB.aiEvaluations.values()) {
-    if (evalRec.round2_submission_id !== currentSubmissionId) {
-      existingScores.add(evalRec.total_score);
-    }
-  }
-
-  let adjustedScores = { ...scores };
-  let total = adjustedScores.character_development +
-    adjustedScores.relationship +
-    adjustedScores.originality +
-    adjustedScores.visual_quality +
-    adjustedScores.prompt_quality +
-    adjustedScores.prompt_image_consistency;
-
-  let attempt = 0;
-  while (existingScores.has(total) && attempt < 50) {
-    attempt++;
-    if (attempt % 2 === 1 && adjustedScores.originality < 15) {
-      adjustedScores.originality += 1;
-    } else if (attempt % 2 === 0 && adjustedScores.originality > 1) {
-      adjustedScores.originality -= 1;
-    } else if (adjustedScores.prompt_quality < 10) {
-      adjustedScores.prompt_quality += 1;
-    } else if (adjustedScores.prompt_quality > 1) {
-      adjustedScores.prompt_quality -= 1;
-    }
-
-    total = adjustedScores.character_development +
-      adjustedScores.relationship +
-      adjustedScores.originality +
-      adjustedScores.visual_quality +
-      adjustedScores.prompt_quality +
-      adjustedScores.prompt_image_consistency;
-  }
-
-  return { scores: adjustedScores, total_score: total };
-}
-
-/**
- * Ensures that the total score for Round 3 is strictly unique across all evaluated teams.
- */
-function ensureUniqueRound3Score(scores: Round3RubricScores, currentSubmissionId: string): { scores: Round3RubricScores; total_score: number } {
-  const existingScores = new Set<number>();
-  for (const evalRec of inMemoryDB.round3AIEvaluations.values()) {
-    if (evalRec.round3_submission_id !== currentSubmissionId) {
-      existingScores.add(evalRec.total_score);
-    }
-  }
-
-  let adjustedScores = { ...scores };
-  let total = adjustedScores.marketing_strategy +
-    adjustedScores.tagline_punch +
-    adjustedScores.audience_engagement +
-    adjustedScores.copywriting_quality +
-    adjustedScores.visual_poster_quality;
-
-  let attempt = 0;
-  while (existingScores.has(total) && attempt < 50) {
-    attempt++;
-    if (attempt % 2 === 1 && adjustedScores.tagline_punch < 20) {
-      adjustedScores.tagline_punch += 1;
-    } else if (attempt % 2 === 0 && adjustedScores.tagline_punch > 1) {
-      adjustedScores.tagline_punch -= 1;
-    } else if (adjustedScores.copywriting_quality < 20) {
-      adjustedScores.copywriting_quality += 1;
-    } else if (adjustedScores.copywriting_quality > 1) {
-      adjustedScores.copywriting_quality -= 1;
-    }
-
-    total = adjustedScores.marketing_strategy +
-      adjustedScores.tagline_punch +
-      adjustedScores.audience_engagement +
-      adjustedScores.copywriting_quality +
-      adjustedScores.visual_poster_quality;
-  }
-
-  return { scores: adjustedScores, total_score: total };
-}
-
-/**
- * Master Round 3 AI Judging Pipeline (Marketing Forge AI Judge)
- */
-export async function executeRound3AIJudgingPipeline(submission: Round3Submission): Promise<Round3EvaluationResult> {
-  const provider = getAIProvider();
-
-  const mktEval = await provider.evaluateRound3Marketing(
-    submission.marketing_angle,
-    submission.intended_audience_response,
-    submission.tagline,
-    submission.promotional_copy,
-    submission.promotional_asset_s3_path || undefined
-  );
-
-  const rawScores: Round3RubricScores = {
-    marketing_strategy: mktEval.marketing_strategy,
-    tagline_punch: mktEval.tagline_punch,
-    audience_engagement: mktEval.audience_engagement,
-    copywriting_quality: mktEval.copywriting_quality,
-    visual_poster_quality: mktEval.visual_poster_quality,
-  };
-
-  const { scores, total_score } = ensureUniqueRound3Score(rawScores, submission.id);
-
-  let decision: 'WINNER_CANDIDATE' | 'QUALIFIED' | 'NEEDS_REVISION' | 'DISQUALIFIED' = 'QUALIFIED';
-  if (total_score >= 85) {
-    decision = 'WINNER_CANDIDATE';
-  } else if (total_score >= 70) {
-    decision = 'QUALIFIED';
-  } else if (total_score >= 50) {
-    decision = 'NEEDS_REVISION';
-  } else {
-    decision = 'DISQUALIFIED';
-  }
-
-  return {
-    scores,
-    total_score,
-    decision,
-    feedback: mktEval.feedback,
-  };
-}
+import { Round2Submission } from '@/types';
 
 /**
  * Instantiates configured AI Provider instance
@@ -144,6 +16,9 @@ export function getAIProvider(): AIProvider {
 
 /**
  * Master Round 2 AI Judging Pipeline
+ * 
+ * Programmatically calculates total score from individual criterion scores.
+ * Preserves actual rubric scores and ties (no artificial unique-score manipulation).
  */
 export async function executeAIJudgingPipeline(submission: Round2Submission): Promise<EvaluationResult> {
   const provider = getAIProvider();
@@ -158,7 +33,7 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
     combinedContext
   );
 
-  // If safety check fails completely (explicit vulgarity)
+  // If safety check fails completely (explicit prohibited content)
   if (safetyResult.status === 'FAIL') {
     return {
       safety: safetyResult,
@@ -174,7 +49,7 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
       decision: 'DISQUALIFIED',
       feedback: [
         `Disqualified: ${safetyResult.reason}`,
-        'Prohibited vulgar/explicit content detected in submission assets.',
+        'Prohibited explicit content detected in submission assets.',
       ],
     };
   }
@@ -223,22 +98,28 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
     }
   );
 
-  // 4. Score Calculation strictly in program code
-  const rawScores: RubricScores = {
-    character_development: charEval.character_development,
-    relationship: charEval.relationship,
-    originality: charEval.originality,
-    visual_quality: visualEval.visual_quality,
-    prompt_quality: visualEval.prompt_quality,
-    prompt_image_consistency: visualEval.prompt_image_consistency,
+  // 4. Validate & Score Calculation strictly in program code
+  const scores: RubricScores = {
+    character_development: Math.min(30, Math.max(0, charEval.character_development || 0)),
+    relationship: Math.min(20, Math.max(0, charEval.relationship || 0)),
+    originality: Math.min(15, Math.max(0, charEval.originality || 0)),
+    visual_quality: Math.min(15, Math.max(0, visualEval.visual_quality || 0)),
+    prompt_quality: Math.min(10, Math.max(0, visualEval.prompt_quality || 0)),
+    prompt_image_consistency: Math.min(10, Math.max(0, visualEval.prompt_image_consistency || 0)),
   };
 
-  const { scores, total_score } = ensureUniqueRound2Score(rawScores, submission.id);
+  const total_score = 
+    scores.character_development +
+    scores.relationship +
+    scores.originality +
+    scores.visual_quality +
+    scores.prompt_quality +
+    scores.prompt_image_consistency;
 
   // Qualification benchmark (Threshold >= 70 points out of 100)
   const decision = total_score >= 70 ? 'QUALIFIED' : 'DISQUALIFIED';
 
-  const combinedFeedback = [...charEval.feedback, ...visualEval.feedback];
+  const combinedFeedback = [...(charEval.feedback || []), ...(visualEval.feedback || [])];
 
   return {
     safety: safetyResult,

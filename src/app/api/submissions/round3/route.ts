@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentTeamSession, getIsAdminSession } from '@/lib/auth';
-import { getRound3Submission, upsertRound3Submission, getRoundSettings, getRound3AIEvaluationBySubmissionId } from '@/lib/db-service';
+import { getRound3Submission, upsertRound3Submission, getRoundSettings, getRound3ManualScoresForSubmission } from '@/lib/db-service';
+import { Round3ManualScore } from '@/types';
 
 export async function GET(req: NextRequest) {
   const teamSession = await getCurrentTeamSession();
@@ -18,12 +19,12 @@ export async function GET(req: NextRequest) {
   }
 
   const submission = await getRound3Submission(targetTeamId);
-  let evaluation = null;
+  let manualScores: Round3ManualScore[] = [];
   if (submission) {
-    evaluation = await getRound3AIEvaluationBySubmissionId(submission.id);
+    manualScores = await getRound3ManualScoresForSubmission(submission.id);
   }
 
-  return NextResponse.json({ success: true, submission, evaluation });
+  return NextResponse.json({ success: true, submission, manualScores });
 }
 
 export async function POST(req: NextRequest) {
@@ -40,8 +41,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   const existing = await getRound3Submission(teamSession.team_id);
-  if (existing && existing.status === 'EVALUATED') {
-    return NextResponse.json({ error: 'Round 3 submission is already evaluated and locked.' }, { status: 422 });
+  if (existing && existing.status === 'LOCKED') {
+    return NextResponse.json({ error: 'Round 3 submission is locked by organizers.' }, { status: 422 });
   }
 
   const result = await upsertRound3Submission({
@@ -49,10 +50,5 @@ export async function POST(req: NextRequest) {
     team_id: teamSession.team_id,
   });
 
-  let evaluation = null;
-  if (result) {
-    evaluation = await getRound3AIEvaluationBySubmissionId(result.id);
-  }
-
-  return NextResponse.json({ success: true, submission: result, evaluation });
+  return NextResponse.json({ success: true, submission: result });
 }
