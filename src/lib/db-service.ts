@@ -793,10 +793,18 @@ export async function updateRoundLifecycle(
   return updated;
 }
 
+export interface RoundSettings {
+  round1: 'OPEN' | 'CLOSED';
+  round2: 'OPEN' | 'CLOSED';
+  round3: 'OPEN' | 'CLOSED';
+  top5_locked: boolean;
+}
+
 /**
  * Gets legacy round settings for backward compatibility
  */
-export async function getRoundSettings(): Promise<{ round1: 'OPEN' | 'CLOSED'; round2: 'OPEN' | 'CLOSED'; round3: 'OPEN' | 'CLOSED'; top5_locked: boolean }> {
+export async function getRoundSettings(): Promise<RoundSettings> {
+
   const lc = await getCompetitionLifecycle();
   return {
     round1: lc.round1.status === 'OPEN' ? 'OPEN' : 'CLOSED',
