@@ -1,0 +1,11 @@
+team_name,member_name,email,phone_number,semester,section
+Studio Alpha,Rahul,rahul@email.com,9876543210,5,A
+Studio Alpha,Priya,priya@email.com,9876543211,5,A
+Studio Alpha,Arjun,arjun@email.com,9876543212,5,A
+Studio Nova,Neha,neha@email.com,9876543220,3,B
+Studio Nova,Aman,aman@email.com,9876543221,3,B
+Studio Nova,Kiran,kiran@email.com,9876543222,3,B
+Studio Nova,Dev,dev@email.com,9876543223,3,B
+Studio Horizon,Vikram,vikram@email.com,9876543230,5,C
+Studio Horizon,Ananya,ananya@email.com,9876543231,5,C
+Studio Horizon,Siddharth,siddharth@email.com,9876543232,5,C
