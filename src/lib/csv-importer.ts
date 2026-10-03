@@ -35,7 +35,7 @@ export function parseCSV(csvContent: string): { data: CSVRow[]; errors: string[]
 }
 
 /**
- * Processes parsed CSV rows into grouped teams, validates team sizes (3-4 members),
+ * Processes parsed CSV rows into grouped teams, validates team sizes (2-3 members),
  * checks for duplicates, and generates Team Codes and Access Codes.
  */
 export async function processAndValidateCSV(rows: CSVRow[]): Promise<ImportSummary> {
@@ -70,11 +70,11 @@ export async function processAndValidateCSV(rows: CSVRow[]): Promise<ImportSumma
   for (const [teamName, members] of teamMap.entries()) {
     const teamErrors: string[] = [];
 
-    // Check team size constraint (Must be 2 to 3 or 4 members)
+    // Check team size constraint (Must be EXACTLY 2 to 3 members)
     if (members.length < 2) {
       teamErrors.push(`Team "${teamName}" has only ${members.length} member. Minimum required is 2 members.`);
-    } else if (members.length > 4) {
-      teamErrors.push(`Team "${teamName}" has ${members.length} members. Maximum allowed is 4 members.`);
+    } else if (members.length > 3) {
+      teamErrors.push(`Team "${teamName}" has ${members.length} members. Maximum allowed is 3 members.`);
     }
 
     const validatedMembers = [];

@@ -180,7 +180,7 @@ export default function AdminCSVImportPage() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-studio-800">
               <div>
                 <h2 className="text-xl font-bold text-white">2. Import Validation Summary</h2>
-                <p className="text-gray-400 text-xs mt-1">Review team groupings, member counts (3-4), and error flags before committing to DB.</p>
+                <p className="text-gray-400 text-xs mt-1">Review team groupings, member counts (2-3), and error flags before committing to DB.</p>
               </div>
 
               <div className="flex items-center space-x-3">

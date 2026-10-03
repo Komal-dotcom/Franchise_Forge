@@ -10,7 +10,7 @@
 **Franchise Forge: The Studio Challenge** is the competition operating system used during event days (AWS Workshop: October 5th–6th, 2026; Main Competition: October 7th, 2026).
 
 It handles:
-- **CSV Team Import**: Registration takes place externally. Organizers import participant CSVs, group 3–4 members per studio team, generate unique Team Codes (`FF26-001`) and cryptographically salted access codes.
+- **CSV Team Import**: Registration takes place externally. Organizers import participant CSVs, group 2–3 members per studio team, generate unique Team Codes (`FF26-001`) and cryptographically salted access codes.
 - **Round 1 (Greenlight Forge)**: Teams submit franchise premise, genre, target audience, core conflict, world-building rules, and elevator pitches.
 - **Round 2 (Character & Visual Forge)**: Teams build Hero and Villain profiles, relationship dynamics, visual prompts, and rendered artwork. Submissions pass through a mandatory 2-stage AI Safety Filter and a 100-Point AI Judging Rubric.
 - **Round 3 (Marketing Forge)**: Teams create promotional strategy, taglines, teaser press release copy, and poster assets. *(Breaking News component has been completely removed)*.

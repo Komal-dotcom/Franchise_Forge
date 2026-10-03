@@ -13,6 +13,12 @@ Studio Duo,Aman,aman@email.com,9876543221,3,B`;
 const invalidSizeCSV = `team_name,member_name,email,phone_number,semester,section
 Studio Solo,Member 1,m1@email.com,9000000001,1,A`;
 
+const invalidFourSizeCSV = `team_name,member_name,email,phone_number,semester,section
+Studio Quad,Member 1,m1@email.com,9000000001,1,A
+Studio Quad,Member 2,m2@email.com,9000000002,1,A
+Studio Quad,Member 3,m3@email.com,9000000003,1,A
+Studio Quad,Member 4,m4@email.com,9000000004,1,A`;
+
 describe('CSV Importer Validation Engine', () => {
   it('should parse valid CSV headers and rows accurately', () => {
     const { data, errors } = parseCSV(validCSV);
@@ -43,6 +49,16 @@ describe('CSV Importer Validation Engine', () => {
     const studioSolo = summary.preview.find((t) => t.team_name === 'Studio Solo');
     expect(studioSolo?.errors.length).toBeGreaterThan(0);
     expect(studioSolo?.errors[0]).toContain('Minimum required is 2 members');
+  });
+
+  it('should flag an error when team size exceeds 3 members (4 members)', async () => {
+    const { data } = parseCSV(invalidFourSizeCSV);
+    const summary = await processAndValidateCSV(data);
+
+    expect(summary.has_errors).toBe(true);
+    const studioQuad = summary.preview.find((t) => t.team_name === 'Studio Quad');
+    expect(studioQuad?.errors.length).toBeGreaterThan(0);
+    expect(studioQuad?.errors[0]).toContain('Maximum allowed is 3 members');
   });
 
   it('should authenticate seed team FF26-001 credentials', async () => {

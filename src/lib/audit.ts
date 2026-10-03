@@ -6,6 +6,9 @@ export interface LogAuditParams {
   action: string;
   entity: string;
   entity_id: string;
+  previous_value?: any;
+  new_value?: any;
+  reason?: string;
   metadata?: Record<string, any>;
 }
 
@@ -19,6 +22,9 @@ export async function logAuditEvent(params: LogAuditParams): Promise<void> {
     action: params.action,
     entity: params.entity,
     entity_id: params.entity_id,
+    previous_value: params.previous_value,
+    new_value: params.new_value,
+    reason: params.reason,
     timestamp: new Date().toISOString(),
     metadata: params.metadata || {},
   };
@@ -33,7 +39,12 @@ export async function logAuditEvent(params: LogAuditParams): Promise<void> {
       entity: params.entity,
       entity_id: params.entity_id,
       timestamp: auditEntry.timestamp,
-      metadata: params.metadata || {},
+      metadata: {
+        ...(params.metadata || {}),
+        ...(params.previous_value && { previous_value: params.previous_value }),
+        ...(params.new_value && { new_value: params.new_value }),
+        ...(params.reason && { reason: params.reason }),
+      },
     });
 
     if (error) {

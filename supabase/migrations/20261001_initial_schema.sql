@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS teams (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 2. TEAM MEMBERS TABLE (3-4 members per team)
+-- 2. TEAM MEMBERS TABLE (2-3 members per team)
 CREATE TABLE IF NOT EXISTS team_members (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
