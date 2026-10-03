@@ -128,3 +128,4 @@ Execute the SQL script located at [`supabase/migrations/20261001_initial_schema.
 | **Admin Control** | `src/app/admin/page.tsx`, `import/page.tsx`, `teams/page.tsx`, `ai-judge/page.tsx`, `final-pitch/page.tsx`, `audit-log/page.tsx` |
 | **Automated Tests** | `tests/csv-import.test.ts`, `tests/ai-judge.test.ts` |
 | **Demo Dataset** | `sample_teams.csv` |
+
