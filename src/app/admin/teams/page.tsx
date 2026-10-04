@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import AdminHeaderNav from '@/components/AdminHeaderNav';
-import { Users, ArrowLeft, Edit3, Trash2, Mail, Phone, Search, Save, X, AlertTriangle, CheckCircle2, RefreshCw, Key, Eye, EyeOff } from 'lucide-react';
+import { Users, ArrowLeft, Edit3, Trash2, Mail, Phone, Search, Save, X, AlertTriangle, CheckCircle2, RefreshCw, Key, Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { TeamWithMembers, TeamMember } from '@/types';
+import ResetTeamModal from '@/components/ResetTeamModal';
 
 export default function AdminTeamsPage() {
   const [teams, setTeams] = useState<TeamWithMembers[]>([]);
@@ -16,6 +17,10 @@ export default function AdminTeamsPage() {
   // Access code visibility toggle map per team id
   const [visibleCodes, setVisibleCodes] = useState<Record<string, boolean>>({});
   const [showEditCode, setShowEditCode] = useState(false);
+
+  // Reset Modal State
+  const [resettingTeam, setResettingTeam] = useState<TeamWithMembers | null>(null);
+
 
   const toggleCodeVisibility = (teamId: string) => {
     setVisibleCodes((prev) => ({ ...prev, [teamId]: !prev[teamId] }));
@@ -223,6 +228,14 @@ export default function AdminTeamsPage() {
                   </span>
 
                   <button
+                    onClick={() => setResettingTeam(team)}
+                    className="p-1.5 rounded-lg bg-studio-800 hover:bg-red-500 hover:text-white text-red-400 transition border border-studio-700"
+                    title="Reset Team Competition Progress"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
                     onClick={() => openEditModal(team)}
                     className="p-1.5 rounded-lg bg-studio-800 hover:bg-amber-500 hover:text-studio-950 text-slate-300 transition border border-studio-700"
                     title="Edit Team Details"
@@ -237,6 +250,7 @@ export default function AdminTeamsPage() {
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
+
                 </div>
               </div>
 
@@ -468,7 +482,24 @@ export default function AdminTeamsPage() {
             </div>
           </div>
         )}
+
+        {/* RESET TEAM MODAL */}
+        {resettingTeam && (
+          <ResetTeamModal
+            team={{ id: resettingTeam.id, team_code: resettingTeam.team_code, team_name: resettingTeam.team_name }}
+            isOpen={!!resettingTeam}
+            onClose={() => setResettingTeam(null)}
+            onSuccess={(result) => {
+              const scopesStr = result.scopes_reset ? result.scopes_reset.join(', ') : 'selected scopes';
+              setSuccessMsg(`✓ Team reset completed successfully for "${resettingTeam.team_name}" (${scopesStr}).`);
+              setResettingTeam(null);
+              fetchTeams();
+            }}
+          />
+        )}
       </main>
     </div>
   );
 }
+
+

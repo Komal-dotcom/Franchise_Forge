@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { TeamDossierData } from '@/types';
-import { ShieldCheck, AlertTriangle, XCircle, CheckCircle2, UserCheck, Film, Image as ImageIcon, MessageSquare, Award, Clock, FileText, User, ChevronRight, Lock, Unlock } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, XCircle, CheckCircle2, UserCheck, Film, Image as ImageIcon, MessageSquare, Award, Clock, FileText, User, ChevronRight, Lock, Unlock, RotateCcw } from 'lucide-react';
+import ResetTeamModal from './ResetTeamModal';
 
 interface Props {
   dossier: TeamDossierData;
@@ -18,10 +19,19 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
     newStatus: '',
     reason: '',
   });
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [resetSuccessMsg, setResetSuccessMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState('');
 
   const { team, members, round1, round2, round2Evaluation, round3, round3ManualScores, finalScores, auditLogs } = dossier;
+
+  const handleResetSuccess = (result: any) => {
+    const scopesStr = result.scopes_reset ? result.scopes_reset.join(', ') : 'all requested scopes';
+    setResetSuccessMsg(`Team reset completed successfully. (Scopes reset: ${scopesStr})`);
+    if (onRefresh) onRefresh();
+  };
+
 
   const handleQualificationOverride = async () => {
     if (!overrideModal.reason.trim()) {
@@ -94,6 +104,14 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
 
         <div className="flex items-center space-x-3">
           <button
+            onClick={() => setResetModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-bold text-xs transition flex items-center space-x-1.5"
+            title="Reset Team Competition Progress"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset Progress</span>
+          </button>
+          <button
             onClick={() => setOverrideModal({ open: true, type: 'QUALIFICATION', newStatus: 'QUALIFIED', reason: '' })}
             className="px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 font-bold text-xs transition"
           >
@@ -109,6 +127,19 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
           )}
         </div>
       </div>
+
+      {resetSuccessMsg && (
+        <div className="mx-6 mt-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{resetSuccessMsg}</span>
+          </div>
+          <button onClick={() => setResetSuccessMsg('')} className="text-emerald-400 hover:text-white">
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
 
       {/* Tabs Bar */}
       <div className="flex items-center overflow-x-auto border-b border-studio-800 bg-studio-900/60 px-4">
@@ -620,6 +651,15 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
           </div>
         </div>
       )}
+
+      {/* RESET TEAM MODAL */}
+      <ResetTeamModal
+        team={{ id: team.id, team_code: team.team_code, team_name: team.team_name }}
+        isOpen={resetModalOpen}
+        onClose={() => setResetModalOpen(false)}
+        onSuccess={handleResetSuccess}
+      />
     </div>
   );
 }
+

@@ -167,3 +167,108 @@ export function validateUploadFile(file: { name: string; type: string; size: num
 
   return { valid: true };
 }
+
+/**
+ * Safely deletes only submission assets belonging strictly to a specified team.
+ * Never deletes assets belonging to other teams or outside submissions/{teamId}/.
+ */
+export async function deleteTeamS3Assets(
+  teamId: string,
+  assetPaths?: (string | null | undefined)[]
+): Promise<{ success: boolean; deletedCount: number; errors: string[]; isMock: boolean }> {
+  if (!teamId || teamId.trim() === '') {
+    return { success: false, deletedCount: 0, errors: ['teamId is required for S3 asset deletion.'], isMock: true };
+  }
+
+  const sanitizedTeamId = sanitizePathComponent(teamId);
+  const teamPrefix = `submissions/${sanitizedTeamId}/`;
+  const rawPrefix = `submissions/${teamId}/`;
+
+  const validPathsToDelete: string[] = [];
+  const unrecognizedPaths: string[] = [];
+
+  if (assetPaths && assetPaths.length > 0) {
+    for (const p of assetPaths) {
+      if (!p) continue;
+      const cleanPath = p.trim();
+      // Check if asset path belongs strictly to this team
+      if (cleanPath.startsWith(teamPrefix) || cleanPath.startsWith(rawPrefix)) {
+        if (!validPathsToDelete.includes(cleanPath)) {
+          validPathsToDelete.push(cleanPath);
+        }
+      } else {
+        unrecognizedPaths.push(cleanPath);
+      }
+    }
+  }
+
+  const errors: string[] = [];
+  if (unrecognizedPaths.length > 0) {
+    errors.push(
+      `Skipped deletion of ${unrecognizedPaths.length} asset(s) that could not be safely verified as belonging to team ${teamId}: ${unrecognizedPaths.join(', ')}`
+    );
+  }
+
+  const client = getS3Client();
+
+  if (client) {
+    try {
+      const { ListObjectsV2Command, DeleteObjectsCommand } = await import('@aws-sdk/client-s3');
+
+      // List objects in S3 bucket for this team prefix
+      const listCmd = new ListObjectsV2Command({
+        Bucket: AWS_S3_BUCKET,
+        Prefix: teamPrefix,
+      });
+
+      const listRes = await client.send(listCmd);
+      const objects = listRes.Contents || [];
+
+      for (const obj of objects) {
+        if (obj.Key && (obj.Key.startsWith(teamPrefix) || obj.Key.startsWith(rawPrefix)) && !validPathsToDelete.includes(obj.Key)) {
+          validPathsToDelete.push(obj.Key);
+        }
+      }
+
+      if (validPathsToDelete.length === 0) {
+        return { success: true, deletedCount: 0, errors, isMock: false };
+      }
+
+      const deleteCmd = new DeleteObjectsCommand({
+        Bucket: AWS_S3_BUCKET,
+        Delete: {
+          Objects: validPathsToDelete.map((Key) => ({ Key })),
+          Quiet: false,
+        },
+      });
+
+      const deleteRes = await client.send(deleteCmd);
+      const deletedCount = deleteRes.Deleted?.length || 0;
+      if (deleteRes.Errors && deleteRes.Errors.length > 0) {
+        deleteRes.Errors.forEach((e) => {
+          errors.push(`Failed to delete S3 object ${e.Key}: ${e.Message || e.Code}`);
+        });
+      }
+
+      return {
+        success: errors.length === 0,
+        deletedCount,
+        errors,
+        isMock: false,
+      };
+    } catch (err: any) {
+      console.warn('S3 asset deletion failed:', err?.message || err);
+      errors.push(`S3 deletion error: ${err?.message || err}`);
+      return { success: false, deletedCount: 0, errors, isMock: false };
+    }
+  }
+
+  // Local fallback mock mode
+  return {
+    success: true,
+    deletedCount: validPathsToDelete.length,
+    errors,
+    isMock: true,
+  };
+}
+

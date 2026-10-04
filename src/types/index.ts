@@ -223,3 +223,26 @@ export interface TeamDossierData {
   finalScores?: FinalScore[];
   auditLogs?: AuditLog[];
 }
+
+export type TeamResetScope =
+  | 'round1'
+  | 'round2'
+  | 'round3'
+  | 'final_pitch'
+  | 'ai_evaluations'
+  | 'assets'
+  | 'all';
+
+export interface TeamResetResult {
+  success: boolean;
+  message: string;
+  team_id: string;
+  team_code: string;
+  scopes_reset: TeamResetScope[];
+  s3_report?: {
+    deleted_count: number;
+    errors: string[];
+    is_mock: boolean;
+  };
+}
+

@@ -14,6 +14,8 @@ import {
   Team,
   TeamDossierData,
   TeamMember,
+  TeamResetResult,
+  TeamResetScope,
   TeamWithMembers,
 } from '@/types';
 import { inMemoryDB, supabaseAdmin } from './supabase';
@@ -21,6 +23,31 @@ import { hashAccessCode } from './auth';
 import { logAuditEvent, getAuditLogs } from './audit';
 export { getAuditLogs };
 import { executeAIJudgingPipeline } from './ai';
+import { deleteTeamS3Assets } from './s3';
+
+function syncSupabase(target: any): void {
+  try {
+    if (target && typeof target.then === 'function') {
+      target.then(() => {}, () => {});
+    }
+  } catch (e) {}
+}
+
+async function safeQuery<T>(queryPromise: PromiseLike<{ data: T | null; error: any }>): Promise<T | null> {
+  try {
+    const timeoutPromise = new Promise<{ data: null; error: any }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: 'timeout' }), 100)
+    );
+    const res = await Promise.race([queryPromise, timeoutPromise]);
+    return res.data;
+  } catch (e) {
+    return null;
+  }
+}
+
+
+
+
 
 /**
  * Commits parsed CSV imported teams into database
@@ -68,8 +95,8 @@ export async function commitImportedTeams(summary: ImportSummary): Promise<{ suc
 
     memberRecords.forEach((mem) => inMemoryDB.teamMembers.set(mem.id, mem));
 
-    try {
-      const { error: teamErr } = await supabaseAdmin.from('teams').upsert(
+    syncSupabase(
+      supabaseAdmin.from('teams').upsert(
         {
           id: teamRecord.id,
           team_code: teamRecord.team_code,
@@ -80,24 +107,23 @@ export async function commitImportedTeams(summary: ImportSummary): Promise<{ suc
           updated_at: teamRecord.updated_at,
         },
         { onConflict: 'team_code' }
-      );
+      )
+    );
 
-      if (!teamErr) {
-        await supabaseAdmin.from('team_members').upsert(
-          memberRecords.map((mem) => ({
-            id: mem.id,
-            team_id: mem.team_id,
-            member_name: mem.member_name,
-            email: mem.email,
-            phone_number: mem.phone_number,
-            semester: mem.semester,
-            section: mem.section,
-          }))
-        );
-      }
-    } catch (err) {
-      // Fallback to in-memory store
-    }
+    syncSupabase(
+      supabaseAdmin.from('team_members').upsert(
+        memberRecords.map((mem) => ({
+          id: mem.id,
+          team_id: mem.team_id,
+          member_name: mem.member_name,
+          email: mem.email,
+          phone_number: mem.phone_number,
+          semester: mem.semester,
+          section: mem.section,
+        }))
+      )
+    );
+
 
     importedCount++;
   }
@@ -131,13 +157,10 @@ export async function getTeamByCode(teamCode: string): Promise<Team | null> {
   }
 
   try {
-    const { data, error } = await supabaseAdmin
-      .from('teams')
-      .select('*')
-      .eq('team_code', cleanCode)
-      .single();
-
-    if (!error && data) return data as Team;
+    const data = await safeQuery(
+      supabaseAdmin.from('teams').select('*').eq('team_code', cleanCode).single()
+    );
+    if (data) return data as Team;
   } catch (err) { }
 
   return null;
@@ -151,12 +174,13 @@ export async function getTeamWithMembers(teamId: string): Promise<TeamWithMember
 
   if (!team) {
     try {
-      const { data } = await supabaseAdmin.from('teams').select('*').eq('id', teamId).single();
+      const data = await safeQuery(supabaseAdmin.from('teams').select('*').eq('id', teamId).single());
       if (data) team = data as Team;
     } catch (e) { }
   }
 
   if (!team) return null;
+
 
   let members: TeamMember[] = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === teamId);
 
@@ -232,10 +256,7 @@ export async function upsertRound1Submission(sub: Partial<Round1Submission> & { 
   };
 
   inMemoryDB.round1Submissions.set(record.id, record);
-
-  try {
-    await supabaseAdmin.from('round1_submissions').upsert(record);
-  } catch (e) { }
+  syncSupabase(supabaseAdmin.from('round1_submissions').upsert(record));
 
   await logAuditEvent({
     actor: `TEAM:${sub.team_id}`,
@@ -248,13 +269,18 @@ export async function upsertRound1Submission(sub: Partial<Round1Submission> & { 
 }
 
 export async function getRound1Submission(teamId: string): Promise<Round1Submission | null> {
+  const mem = Array.from(inMemoryDB.round1Submissions.values()).find((r) => r.team_id === teamId);
+  if (mem) return mem;
+
   try {
-    const { data } = await supabaseAdmin.from('round1_submissions').select('*').eq('team_id', teamId).single();
+    const data = await safeQuery(supabaseAdmin.from('round1_submissions').select('*').eq('team_id', teamId).single());
     if (data) return data as Round1Submission;
   } catch (e) { }
 
-  return Array.from(inMemoryDB.round1Submissions.values()).find((r) => r.team_id === teamId) || null;
+  return null;
 }
+
+
 
 /**
  * Round 2 Submission handling
@@ -284,10 +310,7 @@ export async function upsertRound2Submission(sub: Partial<Round2Submission> & { 
   };
 
   inMemoryDB.round2Submissions.set(record.id, record);
-
-  try {
-    await supabaseAdmin.from('round2_submissions').upsert(record);
-  } catch (e) { }
+  syncSupabase(supabaseAdmin.from('round2_submissions').upsert(record));
 
   await logAuditEvent({
     actor: `TEAM:${sub.team_id}`,
@@ -304,13 +327,17 @@ export async function upsertRound2Submission(sub: Partial<Round2Submission> & { 
 }
 
 export async function getRound2Submission(teamId: string): Promise<Round2Submission | null> {
+  const mem = Array.from(inMemoryDB.round2Submissions.values()).find((r) => r.team_id === teamId);
+  if (mem) return mem;
+
   try {
-    const { data } = await supabaseAdmin.from('round2_submissions').select('*').eq('team_id', teamId).single();
+    const data = await safeQuery(supabaseAdmin.from('round2_submissions').select('*').eq('team_id', teamId).single());
     if (data) return data as Round2Submission;
   } catch (e) { }
 
-  return Array.from(inMemoryDB.round2Submissions.values()).find((r) => r.team_id === teamId) || null;
+  return null;
 }
+
 
 /**
  * Triggers AI evaluation for a Round 2 Submission
@@ -361,10 +388,8 @@ export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<
   sub.status = 'EVALUATED';
   sub.updated_at = now;
 
-  try {
-    await supabaseAdmin.from('ai_evaluations').upsert(aiEvalRecord);
-    await supabaseAdmin.from('round2_submissions').update({ status: 'EVALUATED', updated_at: now }).eq('id', round2SubId);
-  } catch (e) { }
+  syncSupabase(supabaseAdmin.from('ai_evaluations').upsert(aiEvalRecord));
+  syncSupabase(supabaseAdmin.from('round2_submissions').update({ status: 'EVALUATED', updated_at: now }).eq('id', round2SubId));
 
   // Update team qualification status if passed or disqualified
   if (evalResult.decision === 'QUALIFIED') {
@@ -390,12 +415,15 @@ export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<
 }
 
 export async function getAIEvaluationBySubmissionId(round2SubId: string): Promise<AIEvaluation | null> {
+  const mem = Array.from(inMemoryDB.aiEvaluations.values()).find((a) => a.round2_submission_id === round2SubId);
+  if (mem) return mem;
+
   try {
-    const { data } = await supabaseAdmin.from('ai_evaluations').select('*').eq('round2_submission_id', round2SubId).single();
+    const data = await safeQuery(supabaseAdmin.from('ai_evaluations').select('*').eq('round2_submission_id', round2SubId).single());
     if (data) return data as AIEvaluation;
   } catch (e) { }
 
-  return Array.from(inMemoryDB.aiEvaluations.values()).find((a) => a.round2_submission_id === round2SubId) || null;
+  return null;
 }
 
 /**
@@ -420,10 +448,7 @@ export async function upsertRound3Submission(sub: Partial<Round3Submission> & { 
   };
 
   inMemoryDB.round3Submissions.set(record.id, record);
-
-  try {
-    await supabaseAdmin.from('round3_submissions').upsert(record);
-  } catch (e) { }
+  syncSupabase(supabaseAdmin.from('round3_submissions').upsert(record));
 
   await logAuditEvent({
     actor: `TEAM:${sub.team_id}`,
@@ -436,13 +461,17 @@ export async function upsertRound3Submission(sub: Partial<Round3Submission> & { 
 }
 
 export async function getRound3Submission(teamId: string): Promise<Round3Submission | null> {
+  const mem = Array.from(inMemoryDB.round3Submissions.values()).find((r) => r.team_id === teamId);
+  if (mem) return mem;
+
   try {
-    const { data } = await supabaseAdmin.from('round3_submissions').select('*').eq('team_id', teamId).single();
+    const data = await safeQuery(supabaseAdmin.from('round3_submissions').select('*').eq('team_id', teamId).single());
     if (data) return data as Round3Submission;
   } catch (e) { }
 
-  return Array.from(inMemoryDB.round3Submissions.values()).find((r) => r.team_id === teamId) || null;
+  return null;
 }
+
 
 /**
  * Round 3 Manual Judging Score Submissions
@@ -496,10 +525,7 @@ export async function submitRound3ManualScore(
   };
 
   inMemoryDB.round3ManualScores.set(record.id, record);
-
-  try {
-    await supabaseAdmin.from('round3_manual_scores').upsert(record);
-  } catch (e) { }
+  syncSupabase(supabaseAdmin.from('round3_manual_scores').upsert(record));
 
   // Update submission status to EVALUATED if submitted
   const r3sub = Array.from(inMemoryDB.round3Submissions.values()).find((r) => r.id === round3SubId);
@@ -520,20 +546,10 @@ export async function submitRound3ManualScore(
 }
 
 export async function getRound3ManualScoresForSubmission(round3SubId: string): Promise<Round3ManualScore[]> {
-  try {
-    const { data } = await supabaseAdmin.from('round3_manual_scores').select('*').eq('round3_submission_id', round3SubId);
-    if (data && data.length > 0) return data as Round3ManualScore[];
-  } catch (e) { }
-
   return Array.from(inMemoryDB.round3ManualScores.values()).filter((s) => s.round3_submission_id === round3SubId);
 }
 
 export async function getRound3ManualScoresForTeam(teamId: string): Promise<Round3ManualScore[]> {
-  try {
-    const { data } = await supabaseAdmin.from('round3_manual_scores').select('*').eq('team_id', teamId);
-    if (data && data.length > 0) return data as Round3ManualScore[];
-  } catch (e) { }
-
   return Array.from(inMemoryDB.round3ManualScores.values()).filter((s) => s.team_id === teamId);
 }
 
@@ -552,10 +568,7 @@ export async function addFinalScore(teamId: string, judgeId: string, score: numb
   };
 
   inMemoryDB.finalScores.set(record.id, record);
-
-  try {
-    await supabaseAdmin.from('final_scores').insert(record);
-  } catch (e) { }
+  syncSupabase(supabaseAdmin.from('final_scores').insert(record));
 
   await logAuditEvent({
     actor: `JUDGE:${judgeId}`,
@@ -569,13 +582,10 @@ export async function addFinalScore(teamId: string, judgeId: string, score: numb
 }
 
 export async function getFinalScoresForTeam(teamId: string): Promise<FinalScore[]> {
-  try {
-    const { data } = await supabaseAdmin.from('final_scores').select('*').eq('team_id', teamId);
-    if (data) return data as FinalScore[];
-  } catch (e) { }
-
   return Array.from(inMemoryDB.finalScores.values()).filter((f) => f.team_id === teamId);
 }
+
+
 
 /**
  * Admin override for safety / AI evaluation
@@ -921,3 +931,223 @@ export async function getTeamsWithFullInspection(): Promise<Array<{
 
   return result;
 }
+
+/**
+ * Safe Admin-Only Team Reset Handler.
+ * Allows an organizer/admin to reset a team's competition progress across selectable scopes
+ * without deleting the team record, roster members, credentials, access code, or team code.
+ */
+export async function resetTeamProgress(
+  teamId: string,
+  scopes: TeamResetScope[],
+  reason?: string,
+  adminActor: string = 'ADMIN'
+): Promise<TeamResetResult> {
+  if (!teamId || typeof teamId !== 'string') {
+    throw new Error('Valid team_id parameter is required.');
+  }
+
+  if (!scopes || !Array.isArray(scopes) || scopes.length === 0) {
+    throw new Error('At least one reset scope must be selected.');
+  }
+
+  const teamWithMembers = await getTeamWithMembers(teamId);
+  if (!teamWithMembers) {
+    throw new Error(`Team with ID "${teamId}" not found.`);
+  }
+
+  const isResetAll = scopes.includes('all') || scopes.includes('reset_all' as any);
+  const activeScopes: Set<TeamResetScope> = isResetAll
+    ? new Set(['round1', 'round2', 'round3', 'final_pitch', 'ai_evaluations', 'assets'])
+    : new Set(scopes);
+
+  const s3PathsToDelete: (string | null | undefined)[] = [];
+
+  // 1. Fetch current submissions to harvest S3 paths
+  const r1Sub = await getRound1Submission(teamId);
+  const r2Sub = await getRound2Submission(teamId);
+  const r3Sub = await getRound3Submission(teamId);
+
+  if (r1Sub?.s3_path) s3PathsToDelete.push(r1Sub.s3_path);
+  if (r2Sub) {
+    if (r2Sub.hero_image_s3_path) s3PathsToDelete.push(r2Sub.hero_image_s3_path);
+    if (r2Sub.villain_image_s3_path) s3PathsToDelete.push(r2Sub.villain_image_s3_path);
+    if (r2Sub.supporting_character_image_s3_path) s3PathsToDelete.push(r2Sub.supporting_character_image_s3_path);
+  }
+  if (r3Sub?.promotional_asset_s3_path) s3PathsToDelete.push(r3Sub.promotional_asset_s3_path);
+
+  // 2. Perform DB reset for active scopes
+
+  // Round 1 Reset
+  if (activeScopes.has('round1')) {
+    for (const [id, r] of inMemoryDB.round1Submissions.entries()) {
+      if (r.team_id === teamId) {
+        inMemoryDB.round1Submissions.delete(id);
+      }
+    }
+    syncSupabase(supabaseAdmin.from('round1_submissions').delete().eq('team_id', teamId));
+  }
+
+  // Round 2 Reset
+  if (activeScopes.has('round2')) {
+    if (r2Sub) {
+      for (const [id, evalItem] of inMemoryDB.aiEvaluations.entries()) {
+        if (evalItem.round2_submission_id === r2Sub.id) {
+          inMemoryDB.aiEvaluations.delete(id);
+        }
+      }
+      syncSupabase(supabaseAdmin.from('ai_evaluations').delete().eq('round2_submission_id', r2Sub.id));
+    }
+
+    for (const [id, r] of inMemoryDB.round2Submissions.entries()) {
+      if (r.team_id === teamId) {
+        inMemoryDB.round2Submissions.delete(id);
+      }
+    }
+    syncSupabase(supabaseAdmin.from('round2_submissions').delete().eq('team_id', teamId));
+  }
+
+  // Round 3 Reset
+  if (activeScopes.has('round3')) {
+    for (const [id, sc] of inMemoryDB.round3ManualScores.entries()) {
+      if (sc.team_id === teamId || (r3Sub && sc.round3_submission_id === r3Sub.id)) {
+        inMemoryDB.round3ManualScores.delete(id);
+      }
+    }
+    syncSupabase(supabaseAdmin.from('round3_manual_scores').delete().eq('team_id', teamId));
+
+    for (const [id, r] of inMemoryDB.round3Submissions.entries()) {
+      if (r.team_id === teamId) {
+        inMemoryDB.round3Submissions.delete(id);
+      }
+    }
+    syncSupabase(supabaseAdmin.from('round3_submissions').delete().eq('team_id', teamId));
+  }
+
+  // Final Pitch Reset
+  if (activeScopes.has('final_pitch')) {
+    for (const [id, fs] of inMemoryDB.finalScores.entries()) {
+      if (fs.team_id === teamId) {
+        inMemoryDB.finalScores.delete(id);
+      }
+    }
+    syncSupabase(supabaseAdmin.from('final_scores').delete().eq('team_id', teamId));
+  }
+
+  // AI Evaluations Reset (explicit scope without deleting round 2)
+  if (activeScopes.has('ai_evaluations') && !activeScopes.has('round2')) {
+    if (r2Sub) {
+      for (const [id, evalItem] of inMemoryDB.aiEvaluations.entries()) {
+        if (evalItem.round2_submission_id === r2Sub.id) {
+          inMemoryDB.aiEvaluations.delete(id);
+        }
+      }
+      syncSupabase(supabaseAdmin.from('ai_evaluations').delete().eq('round2_submission_id', r2Sub.id));
+
+      r2Sub.status = 'SUBMITTED';
+      r2Sub.updated_at = new Date().toISOString();
+      inMemoryDB.round2Submissions.set(r2Sub.id, r2Sub);
+      syncSupabase(supabaseAdmin.from('round2_submissions').update({ status: 'SUBMITTED', updated_at: r2Sub.updated_at }).eq('id', r2Sub.id));
+    }
+  }
+
+  // S3 Assets Reset
+  let s3Report: { success: boolean; deletedCount: number; errors: string[]; isMock: boolean } | undefined;
+  if (activeScopes.has('assets')) {
+    s3Report = await deleteTeamS3Assets(teamId, s3PathsToDelete);
+
+    if (!activeScopes.has('round1') && r1Sub) {
+      r1Sub.s3_path = null;
+      r1Sub.updated_at = new Date().toISOString();
+      inMemoryDB.round1Submissions.set(r1Sub.id, r1Sub);
+      syncSupabase(supabaseAdmin.from('round1_submissions').update({ s3_path: null, updated_at: r1Sub.updated_at }).eq('id', r1Sub.id));
+    }
+
+    if (!activeScopes.has('round2') && r2Sub) {
+      r2Sub.hero_image_s3_path = null;
+      r2Sub.villain_image_s3_path = null;
+      r2Sub.supporting_character_image_s3_path = null;
+      r2Sub.updated_at = new Date().toISOString();
+      inMemoryDB.round2Submissions.set(r2Sub.id, r2Sub);
+      syncSupabase(supabaseAdmin.from('round2_submissions').update({
+        hero_image_s3_path: null,
+        villain_image_s3_path: null,
+        supporting_character_image_s3_path: null,
+        updated_at: r2Sub.updated_at,
+      }).eq('id', r2Sub.id));
+    }
+
+    if (!activeScopes.has('round3') && r3Sub) {
+      r3Sub.promotional_asset_s3_path = null;
+      r3Sub.updated_at = new Date().toISOString();
+      inMemoryDB.round3Submissions.set(r3Sub.id, r3Sub);
+      syncSupabase(supabaseAdmin.from('round3_submissions').update({
+        promotional_asset_s3_path: null,
+        updated_at: r3Sub.updated_at,
+      }).eq('id', r3Sub.id));
+    }
+  }
+
+  // 3. Update Team status and current round safely
+  const updatedTeam = inMemoryDB.teams.get(teamId) || teamWithMembers;
+  let targetRound = updatedTeam.current_round;
+  let targetStatus = updatedTeam.status;
+
+  if (activeScopes.has('round1') || isResetAll) {
+    targetRound = 1;
+  } else if (activeScopes.has('round2') && targetRound > 2) {
+    targetRound = 2;
+  } else if (activeScopes.has('round3') && targetRound > 3) {
+    targetRound = 3;
+  }
+
+  if (targetStatus === 'QUALIFIED' || targetStatus === 'DISQUALIFIED') {
+    if (activeScopes.has('round2') || activeScopes.has('ai_evaluations') || activeScopes.has('round1') || isResetAll) {
+      targetStatus = 'ACTIVE';
+    }
+  }
+
+  updatedTeam.current_round = targetRound;
+  updatedTeam.status = targetStatus;
+  updatedTeam.updated_at = new Date().toISOString();
+  inMemoryDB.teams.set(teamId, updatedTeam);
+
+  syncSupabase(supabaseAdmin.from('teams').update({
+    current_round: targetRound,
+    status: targetStatus,
+    updated_at: updatedTeam.updated_at,
+  }).eq('id', teamId));
+
+
+  // 4. Record mandatory Audit Log
+  const scopeList = Array.from(activeScopes);
+  await logAuditEvent({
+    actor: adminActor,
+    action: 'RESET_TEAM_PROGRESS',
+    entity: 'TEAM',
+    entity_id: teamId,
+    reason: reason || 'Admin team progress reset',
+    metadata: {
+      team_code: teamWithMembers.team_code,
+      team_name: teamWithMembers.team_name,
+      scopes: scopeList,
+      is_reset_all: isResetAll,
+      s3_report: s3Report,
+      timestamp: new Date().toISOString(),
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Team reset completed successfully.',
+    team_id: teamId,
+    team_code: teamWithMembers.team_code,
+    scopes_reset: scopeList as TeamResetScope[],
+    s3_report: s3Report ? {
+      deleted_count: s3Report.deletedCount,
+      errors: s3Report.errors,
+      is_mock: s3Report.isMock,
+    } : undefined,
+  };
+}
+

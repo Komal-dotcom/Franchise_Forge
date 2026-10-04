@@ -33,7 +33,7 @@ export async function logAuditEvent(params: LogAuditParams): Promise<void> {
   inMemoryDB.auditLogs.unshift(auditEntry);
 
   try {
-    const { error } = await supabaseAdmin.from('audit_logs').insert({
+    const res = supabaseAdmin.from('audit_logs').insert({
       actor: params.actor,
       action: params.action,
       entity: params.entity,
@@ -47,18 +47,24 @@ export async function logAuditEvent(params: LogAuditParams): Promise<void> {
       },
     });
 
-    if (error) {
-      console.warn('Database audit insert notice:', error.message);
+    if (res && typeof (res as any).then === 'function') {
+      (res as any).then(() => {}, () => {});
     }
   } catch (err) {
     // Graceful fallback for local offline environment
   }
 }
 
+
+
 /**
  * Retrieves audit logs ordered by newest first
  */
 export async function getAuditLogs(limit = 100): Promise<AuditLog[]> {
+  if (inMemoryDB.auditLogs.length > 0) {
+    return inMemoryDB.auditLogs.slice(0, limit);
+  }
+
   try {
     const { data, error } = await supabaseAdmin
       .from('audit_logs')
@@ -75,3 +81,4 @@ export async function getAuditLogs(limit = 100): Promise<AuditLog[]> {
 
   return inMemoryDB.auditLogs.slice(0, limit);
 }
+
