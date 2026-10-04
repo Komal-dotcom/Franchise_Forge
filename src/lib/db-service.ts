@@ -36,7 +36,7 @@ function syncSupabase(target: any): void {
 async function safeQuery<T>(queryPromise: PromiseLike<{ data: T | null; error: any }>): Promise<T | null> {
   try {
     const timeoutPromise = new Promise<{ data: null; error: any }>((resolve) =>
-      setTimeout(() => resolve({ data: null, error: 'timeout' }), 100)
+      setTimeout(() => resolve({ data: null, error: 'timeout' }), 150)
     );
     const res = await Promise.race([queryPromise, timeoutPromise]);
     return res.data;
@@ -170,24 +170,52 @@ export async function getTeamByCode(teamCode: string): Promise<Team | null> {
  * Gets team details with members roster
  */
 export async function getTeamWithMembers(teamId: string): Promise<TeamWithMembers | null> {
-  let team: Team | undefined = inMemoryDB.teams.get(teamId);
+  if (!teamId || typeof teamId !== 'string') return null;
+  const cleanId = teamId.trim();
 
+  // 1. Direct Map lookup by ID
+  let team: Team | undefined = inMemoryDB.teams.get(cleanId);
+
+  // 2. Flexible lookup in inMemoryDB by id, team_code, or team_name
+  if (!team) {
+    const upperClean = cleanId.toUpperCase();
+    for (const t of inMemoryDB.teams.values()) {
+      if (
+        t.id === cleanId ||
+        (t.team_code && t.team_code.trim().toUpperCase() === upperClean) ||
+        (t.team_name && t.team_name.trim().toUpperCase() === upperClean)
+      ) {
+        team = t;
+        break;
+      }
+    }
+  }
+
+  // 3. Fallback: Query Supabase by id or team_code in a single query
   if (!team) {
     try {
-      const data = await safeQuery(supabaseAdmin.from('teams').select('*').eq('id', teamId).single());
-      if (data) team = data as Team;
+      const data = await safeQuery(
+        supabaseAdmin.from('teams').select('*').or(`id.eq.${cleanId},team_code.eq.${cleanId.toUpperCase()}`).single()
+      );
+      if (data) {
+        team = data as Team;
+        inMemoryDB.teams.set(team.id, team);
+      }
     } catch (e) { }
   }
 
   if (!team) return null;
 
-
-  let members: TeamMember[] = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === teamId);
+  // Retrieve member roster
+  let members: TeamMember[] = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === team!.id);
 
   if (members.length === 0) {
     try {
-      const { data } = await supabaseAdmin.from('team_members').select('*').eq('team_id', teamId);
-      if (data && data.length > 0) members = data as TeamMember[];
+      const data = await safeQuery(supabaseAdmin.from('team_members').select('*').eq('team_id', team.id));
+      if (data && Array.isArray(data) && data.length > 0) {
+        members = data as TeamMember[];
+        members.forEach((mem) => inMemoryDB.teamMembers.set(mem.id, mem));
+      }
     } catch (e) { }
   }
 
@@ -200,27 +228,32 @@ export async function getTeamWithMembers(teamId: string): Promise<TeamWithMember
 export async function getAllTeamsWithMembers(): Promise<TeamWithMembers[]> {
   const teamsMap = new Map<string, TeamWithMembers>();
 
-
   for (const team of inMemoryDB.teams.values()) {
     const members = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === team.id);
     teamsMap.set(team.id, { ...team, members });
   }
 
   try {
-    const { data: dbTeams } = await supabaseAdmin.from('teams').select('*, team_members(*)');
-    if (dbTeams) {
-      dbTeams.forEach((t: any) => {
-        teamsMap.set(t.id, {
+    const data = await safeQuery(supabaseAdmin.from('teams').select('*, team_members(*)'));
+    if (data && Array.isArray(data)) {
+      data.forEach((t: any) => {
+        const teamObj: TeamWithMembers = {
           id: t.id,
           team_code: t.team_code,
           team_name: t.team_name,
           access_code_hash: t.access_code_hash,
+          access_code: t.access_code,
           current_round: t.current_round,
           status: t.status,
           created_at: t.created_at,
           updated_at: t.updated_at,
           members: t.team_members || [],
-        });
+        };
+        teamsMap.set(t.id, teamObj);
+        inMemoryDB.teams.set(t.id, teamObj);
+        if (t.team_members && Array.isArray(t.team_members)) {
+          t.team_members.forEach((m: any) => inMemoryDB.teamMembers.set(m.id, m));
+        }
       });
     }
   } catch (e) { }
@@ -938,12 +971,12 @@ export async function getTeamsWithFullInspection(): Promise<Array<{
  * without deleting the team record, roster members, credentials, access code, or team code.
  */
 export async function resetTeamProgress(
-  teamId: string,
+  teamIdParam: string,
   scopes: TeamResetScope[],
   reason?: string,
   adminActor: string = 'ADMIN'
 ): Promise<TeamResetResult> {
-  if (!teamId || typeof teamId !== 'string') {
+  if (!teamIdParam || typeof teamIdParam !== 'string') {
     throw new Error('Valid team_id parameter is required.');
   }
 
@@ -951,10 +984,12 @@ export async function resetTeamProgress(
     throw new Error('At least one reset scope must be selected.');
   }
 
-  const teamWithMembers = await getTeamWithMembers(teamId);
+  const teamWithMembers = await getTeamWithMembers(teamIdParam);
   if (!teamWithMembers) {
-    throw new Error(`Team with ID "${teamId}" not found.`);
+    throw new Error(`Team with ID "${teamIdParam}" not found.`);
   }
+
+  const teamId = teamWithMembers.id;
 
   const isResetAll = scopes.includes('all') || scopes.includes('reset_all' as any);
   const activeScopes: Set<TeamResetScope> = isResetAll

@@ -324,4 +324,69 @@ describe('SAFE ADMIN-ONLY TEAM RESET FEATURE', () => {
     await expect(resetTeamProgress(teamPhoenixId, [])).rejects.toThrow('At least one reset scope must be selected');
     await expect(resetTeamProgress('non_existent_id', ['round1'])).rejects.toThrow('not found');
   });
+
+  it('REGRESSION: should reset an existing team by exact UUID (e.g., 1481a8f6-e79c-49db-b8ef-7255f0f80ffb) and by team code', async () => {
+    const customUuid = '1481a8f6-e79c-49db-b8ef-7255f0f80ffb';
+    const customCode = 'FF26-999';
+
+    // Seed team with exact UUID from bug report
+    inMemoryDB.teams.set(customUuid, {
+      id: customUuid,
+      team_code: customCode,
+      team_name: 'Studio Test Alpha',
+      access_code_hash: 'hash999',
+      access_code: '999999',
+      current_round: 2,
+      status: 'ACTIVE',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    await upsertRound1Submission({
+      team_id: customUuid,
+      franchise_name: 'Alpha Concept',
+      genre: 'Fantasy',
+      target_audience: 'General',
+      core_premise: 'Alpha world concept',
+      central_conflict: 'Alpha conflict',
+      world_concept: 'Alpha world',
+      elevator_pitch: 'Alpha pitch',
+      status: 'SUBMITTED',
+    });
+
+    // 1. Reset by exact UUID 1481a8f6-e79c-49db-b8ef-7255f0f80ffb
+    const resUuid = await resetTeamProgress(customUuid, ['round1'], 'Resetting by exact UUID 1481a8f6-e79c-49db-b8ef-7255f0f80ffb', 'ADMIN');
+    expect(resUuid.success).toBe(true);
+    expect(resUuid.team_id).toBe(customUuid);
+    expect(resUuid.team_code).toBe(customCode);
+
+    // Verify submission cleared
+    const r1SubAfterUuid = await getRound1Submission(customUuid);
+    expect(r1SubAfterUuid).toBeNull();
+
+    // Verify team record still exists
+    const teamObjAfterUuid = await getTeamWithMembers(customUuid);
+    expect(teamObjAfterUuid).not.toBeNull();
+    expect(teamObjAfterUuid?.id).toBe(customUuid);
+
+    // 2. Reset by Team Code
+    await upsertRound1Submission({
+      team_id: customUuid,
+      franchise_name: 'Alpha Concept 2',
+      genre: 'Fantasy',
+      target_audience: 'General',
+      core_premise: 'Alpha world concept 2',
+      central_conflict: 'Alpha conflict 2',
+      world_concept: 'Alpha world 2',
+      elevator_pitch: 'Alpha pitch 2',
+      status: 'SUBMITTED',
+    });
+
+    const resCode = await resetTeamProgress(customCode, ['round1'], 'Resetting by Team Code FF26-999', 'ADMIN');
+    expect(resCode.success).toBe(true);
+
+    const r1SubAfterCode = await getRound1Submission(customUuid);
+    expect(r1SubAfterCode).toBeNull();
+  });
 });
+
