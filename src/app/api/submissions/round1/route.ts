@@ -22,6 +22,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ success: true, submission });
 }
 
+import { validateRound1Submission } from '@/lib/ai/validator';
+
 export async function POST(req: NextRequest) {
   const teamSession = await getCurrentTeamSession();
   if (!teamSession) {
@@ -39,6 +41,14 @@ export async function POST(req: NextRequest) {
   const existing = await getRound1Submission(teamSession.team_id);
   if (existing && existing.status === 'SUBMITTED') {
     return NextResponse.json({ error: 'Round 1 submission is already submitted and locked.' }, { status: 422 });
+  }
+
+  // Pre-submission meaningful content validation
+  if (body.status === 'SUBMITTED') {
+    const validation = validateRound1Submission(body);
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.reason, validation }, { status: 400 });
+    }
   }
 
   const result = await upsertRound1Submission({

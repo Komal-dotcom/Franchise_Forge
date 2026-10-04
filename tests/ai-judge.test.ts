@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { executeAIJudgingPipeline } from '../src/lib/ai';
 import { submitRound3ManualScore } from '../src/lib/db-service';
-import { Round2Submission } from '../src/types';
+import { Round1Submission, Round2Submission } from '../src/types';
+import { validateRound1Submission } from '../src/lib/ai/validator';
 
 describe('AI Judge & Safety Pipeline', () => {
   it('TEST 1: All fields contain random letters -> INVALID, Score 0', async () => {
@@ -438,5 +439,38 @@ describe('AI Judge & Safety Pipeline', () => {
     // MUST return INVALID SUBMISSION and Creative evaluation: NOT EVALUATED in feedback
     expect(evalResult.feedback.some(f => f.includes('INVALID SUBMISSION'))).toBe(true);
     expect(evalResult.feedback.some(f => f.includes('NOT EVALUATED'))).toBe(true);
+  });
+
+  it('TEST 12: Round 1 gibberish input -> rejected with INVALID status', async () => {
+    const gibberishRound1: Partial<Round1Submission> = {
+      franchise_name: 'asdfghjkl',
+      genre: 'qwerty',
+      target_audience: 'zxcvbnm',
+      core_premise: 'ajshdkajshd aaaaaaa test test test test',
+      central_conflict: 'jdhsgf kjhdsf kjhdf',
+      world_concept: 'abc abc abc abc',
+      elevator_pitch: 'xcvbnm test test test test',
+    };
+
+    const result = validateRound1Submission(gibberishRound1);
+    expect(result.valid).toBe(false);
+    expect(result.status).toBe('INVALID_SUBMISSION');
+    expect(result.reason).toContain('Round 1 failed validation');
+  });
+
+  it('TEST 13: Round 1 meaningful creative submission -> accepted with VALID status', async () => {
+    const validRound1: Partial<Round1Submission> = {
+      franchise_name: 'CyberVerse: Neon Odyssey',
+      genre: 'Sci-Fi Cyberpunk Thriller',
+      target_audience: 'Young Adults & Gaming/Tech Enthusiasts (Ages 16-30)',
+      core_premise: 'In a dystopian mega-city ruled by artificial intelligence, rogue human hackers fight to reclaim physical autonomy.',
+      central_conflict: 'The clash between corporate neural enslavement protocols and human free-will liberation.',
+      world_concept: 'Neon-soaked subterranean alleys, holographic skyscrapers, and high-tech cybernetic implants.',
+      elevator_pitch: 'A high-octane cyberpunk epic combining neural heist action with philosophical questions of digital consciousness.',
+    };
+
+    const result = validateRound1Submission(validRound1);
+    expect(result.valid).toBe(true);
+    expect(result.status).toBe('VALID');
   });
 });

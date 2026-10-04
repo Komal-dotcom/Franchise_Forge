@@ -1,4 +1,4 @@
-import { Round2Submission, CharacterData } from '@/types';
+import { Round1Submission, Round2Submission, CharacterData } from '@/types';
 import { isValidS3Path, getPresignedDownloadUrl } from '../s3';
 
 export interface FieldValidationDetail {
@@ -64,6 +64,12 @@ const VALID_NAME_EXCEPTIONS = new Set([
  * Checks if a single word token is linguistically plausible
  */
 function isRecognizedToken(token: string): boolean {
+  // If token is compound with hyphens or slashes (e.g. high-tech, gaming/tech), split and validate parts
+  if (token.includes('-') || token.includes('/')) {
+    const parts = token.split(/[-/]/).filter(Boolean);
+    return parts.every((p) => isRecognizedToken(p));
+  }
+
   const clean = token.toLowerCase().replace(/[^a-z]/g, '');
   if (clean.length === 0) return true;
   if (COMMON_VOCABULARY.has(clean) || VALID_NAME_EXCEPTIONS.has(clean)) return true;
@@ -136,8 +142,9 @@ export function detectGibberish(text: string, fieldType: 'name' | 'goal' | 'desc
     if (tokens.length > 6) {
       return { isGibberish: true, reason: 'Name contains too many words (maximum 6 allowed).' };
     }
-    // Check invalid punctuation in name
-    if (/[!@#$%^&*()_+=~`{}\[\]:;<>,.?\/|\\]/.test(trimmed)) {
+    // Check invalid punctuation in name (allow hyphens, apostrophes, dots, colons, spaces)
+    const cleanPunctuation = trimmed.replace(/[-' \.:]/g, '');
+    if (/[!@#$%^&*()_+=~`{}\[\];<>,?\/|\\]/.test(cleanPunctuation)) {
       return { isGibberish: true, reason: 'Name contains invalid punctuation or random symbols.' };
     }
 
@@ -155,9 +162,12 @@ export function detectGibberish(text: string, fieldType: 'name' | 'goal' | 'desc
       return { isGibberish: true, reason: `Name "${trimmed}" lacks a valid vowel-consonant structure.` };
     }
 
-    // Check long consonant clusters (e.g., ccgucgusd has "ccg", "cgusd")
-    if (/[bcdfghjklmnpqrstvwxz]{5,}/i.test(alphasOnly) && !VALID_NAME_EXCEPTIONS.has(cleanName)) {
-      return { isGibberish: true, reason: `Name "${trimmed}" contains unnatural consonant letter mashes.` };
+    // Check long consonant clusters per token (e.g., ccgucgusd has "ccg", "cgusd")
+    for (const token of tokens) {
+      const cleanTok = token.replace(/[^a-zA-Z]/g, '');
+      if (/[bcdfghjklmnpqrstvwxz]{5,}/i.test(cleanTok) && !VALID_NAME_EXCEPTIONS.has(cleanTok.toLowerCase())) {
+        return { isGibberish: true, reason: `Name "${trimmed}" contains unnatural consonant letter mashes.` };
+      }
     }
 
     return { isGibberish: false };
@@ -310,6 +320,55 @@ export async function validateRound2Submission(sub: Round2Submission): Promise<S
     valid: true,
     status: 'VALID',
     reason: 'All required submission fields cleared pre-scoring validation.',
+    fieldDetails,
+  };
+}
+
+/**
+ * Validates a Round 1 Submission for meaningful content prior to locking
+ */
+export function validateRound1Submission(sub: Partial<Round1Submission>): SubmissionValidationResult {
+  const fieldDetails: Record<string, FieldValidationDetail> = {};
+  const failureReasons: string[] = [];
+
+  const checkField = (
+    value: string | undefined,
+    fieldKey: string,
+    label: string,
+    type: 'name' | 'goal' | 'description' | 'prompt'
+  ) => {
+    const res = detectGibberish(value || '', type);
+    if (res.isGibberish) {
+      const reason = res.reason || `${label} contains invalid or meaningless content.`;
+      fieldDetails[fieldKey] = { field: fieldKey, label, valid: false, reason };
+      failureReasons.push(`${label}: ${reason}`);
+    } else {
+      fieldDetails[fieldKey] = { field: fieldKey, label, valid: true, reason: 'Passes content quality check.' };
+    }
+  };
+
+  checkField(sub.franchise_name, 'franchise_name', 'Franchise Name', 'name');
+  checkField(sub.genre, 'genre', 'Genre', 'name');
+  checkField(sub.target_audience, 'target_audience', 'Target Audience', 'goal');
+  checkField(sub.core_premise, 'core_premise', 'Core Premise', 'description');
+  checkField(sub.central_conflict, 'central_conflict', 'Central Conflict', 'description');
+  checkField(sub.world_concept, 'world_concept', 'World Concept', 'description');
+  checkField(sub.elevator_pitch, 'elevator_pitch', 'Elevator Pitch', 'description');
+
+  if (failureReasons.length > 0) {
+    return {
+      valid: false,
+      status: 'INVALID_SUBMISSION',
+      reason: `Round 1 failed validation: ${failureReasons.slice(0, 2).join('; ')}`,
+      fieldDetails,
+      scoreCap: 0,
+    };
+  }
+
+  return {
+    valid: true,
+    status: 'VALID',
+    reason: 'All required Round 1 fields passed content validation.',
     fieldDetails,
   };
 }

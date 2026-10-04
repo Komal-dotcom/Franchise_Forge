@@ -1,7 +1,7 @@
 import { AIProvider, EvaluationResult, RubricScores, SafetyCheckResult } from './types';
 import { MockAIProvider } from './mock-provider';
 import { LocalOllamaProvider } from './ollama-provider';
-import { Round2Submission } from '@/types';
+import { Round2Submission, EvaluationDecision } from '@/types';
 import { getPresignedDownloadUrl } from '../s3';
 
 /**
@@ -186,8 +186,8 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
 
   const total_score = rawTotalScore;
 
-  // Qualification benchmark (Threshold >= 70 points out of 100)
-  const decision = total_score >= 70 ? 'QUALIFIED' : 'DISQUALIFIED';
+  // Any submission clearing content validation and safety evaluation is QUALIFIED to proceed
+  const decision: EvaluationDecision = 'QUALIFIED';
 
   const combinedFeedback = [...(charEval.feedback || []), ...(visualEval.feedback || [])];
 

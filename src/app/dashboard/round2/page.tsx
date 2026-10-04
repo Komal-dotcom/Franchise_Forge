@@ -375,7 +375,7 @@ export default function Round2Page() {
                 {!isLocked && (
                   <label className="cursor-pointer px-3 py-2.5 bg-studio-800 hover:bg-studio-700 border border-studio-600 rounded-xl text-xs font-bold text-cyanGlow flex items-center space-x-1 shrink-0">
                     <Upload className="w-4 h-4" />
-                    <span>{uploadingField === 'round2/hero' ? 'Uploading...' : 'Upload'}</span>
+                    <span>{uploadingField === 'round2/hero' ? 'Uploading...' : 'Upload Image'}</span>
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp,image/gif"
@@ -389,6 +389,12 @@ export default function Round2Page() {
                   </label>
                 )}
               </div>
+              {heroImage && (
+                <p className="text-[11px] text-emerald-400 font-bold mt-1 flex items-center space-x-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>✓ Hero image uploaded</span>
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -465,7 +471,7 @@ export default function Round2Page() {
                 {!isLocked && (
                   <label className="cursor-pointer px-3 py-2.5 bg-studio-800 hover:bg-studio-700 border border-studio-600 rounded-xl text-xs font-bold text-crimsonGlow flex items-center space-x-1 shrink-0">
                     <Upload className="w-4 h-4" />
-                    <span>{uploadingField === 'round2/villain' ? 'Uploading...' : 'Upload'}</span>
+                    <span>{uploadingField === 'round2/villain' ? 'Uploading...' : 'Upload Image'}</span>
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp,image/gif"
@@ -479,6 +485,12 @@ export default function Round2Page() {
                   </label>
                 )}
               </div>
+              {villainImage && (
+                <p className="text-[11px] text-emerald-400 font-bold mt-1 flex items-center space-x-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>✓ Villain image uploaded</span>
+                </p>
+              )}
             </div>
           </div>
         </div>

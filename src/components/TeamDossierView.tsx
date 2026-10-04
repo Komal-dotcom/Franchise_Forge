@@ -365,11 +365,16 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
                       <User className="w-4 h-4 text-emerald-400" />
                       <span>HERO: {round2.hero_data.name}</span>
                     </h4>
-                    <p><span className="text-gray-500">Goal:</span> {round2.hero_data.goal}</p>
-                    <p><span className="text-gray-500">Personality:</span> {round2.hero_data.personality}</p>
-                    <p><span className="text-gray-500">Strengths:</span> {round2.hero_data.strengths}</p>
-                    <p><span className="text-gray-500">Weakness:</span> {round2.hero_data.weakness}</p>
-                    <p><span className="text-gray-500">Visual Prompt:</span> <span className="italic font-mono text-gray-300">{round2.hero_prompt}</span></p>
+                    <p><span className="text-gray-500 font-bold">Goal:</span> {round2.hero_data.goal}</p>
+                    {round2.hero_data.description && (
+                      <p><span className="text-gray-500 font-bold">Character Description & Personality:</span> {round2.hero_data.description}</p>
+                    )}
+                    {round2.hero_data.personality && round2.hero_data.personality !== round2.hero_data.description && (
+                      <p><span className="text-gray-500 font-bold">Personality:</span> {round2.hero_data.personality}</p>
+                    )}
+                    {round2.hero_data.strengths && <p><span className="text-gray-500 font-bold">Strengths:</span> {round2.hero_data.strengths}</p>}
+                    {round2.hero_data.weakness && <p><span className="text-gray-500 font-bold">Weakness:</span> {round2.hero_data.weakness}</p>}
+                    <p><span className="text-gray-500 font-bold">Visual Prompt:</span> <span className="italic font-mono text-gray-300">{round2.hero_prompt}</span></p>
                     {round2.hero_image_s3_path && (
                       <div className="mt-2 pt-2 border-t border-studio-800 flex items-center justify-between">
                         <div className="overflow-hidden">
@@ -394,11 +399,16 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
                       <User className="w-4 h-4 text-rose-400" />
                       <span>VILLAIN: {round2.villain_data.name}</span>
                     </h4>
-                    <p><span className="text-gray-500">Goal:</span> {round2.villain_data.goal}</p>
-                    <p><span className="text-gray-500">Personality:</span> {round2.villain_data.personality}</p>
-                    <p><span className="text-gray-500">Strengths:</span> {round2.villain_data.strengths}</p>
-                    <p><span className="text-gray-500">Weakness:</span> {round2.villain_data.weakness}</p>
-                    <p><span className="text-gray-500">Visual Prompt:</span> <span className="italic font-mono text-gray-300">{round2.villain_prompt}</span></p>
+                    <p><span className="text-gray-500 font-bold">Goal:</span> {round2.villain_data.goal}</p>
+                    {round2.villain_data.description && (
+                      <p><span className="text-gray-500 font-bold">Character Description & Personality:</span> {round2.villain_data.description}</p>
+                    )}
+                    {round2.villain_data.personality && round2.villain_data.personality !== round2.villain_data.description && (
+                      <p><span className="text-gray-500 font-bold">Personality:</span> {round2.villain_data.personality}</p>
+                    )}
+                    {round2.villain_data.strengths && <p><span className="text-gray-500 font-bold">Strengths:</span> {round2.villain_data.strengths}</p>}
+                    {round2.villain_data.weakness && <p><span className="text-gray-500 font-bold">Weakness:</span> {round2.villain_data.weakness}</p>}
+                    <p><span className="text-gray-500 font-bold">Visual Prompt:</span> <span className="italic font-mono text-gray-300">{round2.villain_prompt}</span></p>
                     {round2.villain_image_s3_path && (
                       <div className="mt-2 pt-2 border-t border-studio-800 flex items-center justify-between">
                         <div className="overflow-hidden">
@@ -415,6 +425,21 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
                         </a>
                       </div>
                     )}
+                  </div>
+                </div>
+
+                {/* Hero-Villain Relationship & Conflict */}
+                <div className="glass-panel p-5 rounded-2xl border border-studio-800 space-y-3">
+                  <h4 className="font-black text-cyanGlow text-sm uppercase tracking-wider">HERO–VILLAIN RELATIONSHIP & CONFLICT</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">Hero–Villain Relationship</span>
+                      <p className="text-gray-200 mt-1">{round2.hero_villain_relationship || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">Narrative Conflict</span>
+                      <p className="text-gray-200 mt-1">{round2.hero_villain_conflict || 'N/A'}</p>
+                    </div>
                   </div>
                 </div>
               </>
@@ -453,6 +478,23 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
                   <span className="text-[10px] font-bold uppercase text-gray-400">Promotional Copy</span>
                   <p className="text-gray-200 leading-relaxed whitespace-pre-wrap">{round3.promotional_copy}</p>
                 </div>
+
+                {round3.promotional_asset_s3_path && (
+                  <div className="glass-panel p-4 rounded-xl border border-studio-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">Promotional Poster / Asset Path</span>
+                      <p className="font-mono text-amber-400 mt-0.5">{round3.promotional_asset_s3_path}</p>
+                    </div>
+                    <a
+                      href={`/api/assets/download?path=${encodeURIComponent(round3.promotional_asset_s3_path)}&redirect=true`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 bg-studio-800 hover:bg-studio-700 text-cyanGlow font-bold text-xs rounded-lg border border-studio-700"
+                    >
+                      View Asset ↗
+                    </a>
+                  </div>
+                )}
 
                 {/* Human Judge Scorecard for Round 3 */}
                 <div className="glass-panel p-5 rounded-2xl border border-amber-500/30 bg-studio-900 space-y-3">

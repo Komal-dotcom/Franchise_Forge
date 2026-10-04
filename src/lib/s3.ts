@@ -47,8 +47,31 @@ export function buildS3Path(teamId: string, category: S3AssetCategory, filename:
  */
 export function isValidS3Path(s3Path: string): boolean {
   if (!s3Path || typeof s3Path !== 'string') return false;
+  let decoded = s3Path.trim();
+  try {
+    decoded = decodeURIComponent(decoded).trim();
+  } catch (e) {}
+
+  // Must strictly start with submissions/
+  if (!decoded.startsWith('submissions/')) return false;
+
+  // Prevent directory traversal attacks
+  if (decoded.includes('..') || decoded.includes('\\')) return false;
+
+  // Must follow canonical submissions/{teamId}/{category}/{filename} format
   const s3PathRegex = /^submissions\/[a-zA-Z0-9._-]+\/(round1|round2\/hero|round2\/villain|round2\/supporting|round3)\/[a-zA-Z0-9._-]+$/;
-  return s3PathRegex.test(s3Path);
+  if (s3PathRegex.test(decoded)) return true;
+
+  // Fallback check for valid canonical submissions/ path with valid key structure
+  const parts = decoded.split('/');
+  if (parts.length >= 3 && parts[0] === 'submissions' && parts[1].length > 0) {
+    const categoryFolder = parts[2];
+    if (['round1', 'round2', 'round3', 'supporting'].includes(categoryFolder)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**

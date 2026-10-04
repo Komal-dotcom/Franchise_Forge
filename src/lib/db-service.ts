@@ -589,8 +589,8 @@ export async function adminOverrideSafety(round2SubId: string, newSafetyStatus: 
 
   aiEval.safety_status = newSafetyStatus;
   aiEval.safety_reason = `Admin Override: ${reason}`;
-  aiEval.decision = newSafetyStatus === 'PASS' ? (aiEval.total_score >= 70 ? 'QUALIFIED' : 'DISQUALIFIED') : 'DISQUALIFIED';
-  aiEval.evaluation_status = newSafetyStatus === 'PASS' ? (aiEval.total_score >= 70 ? 'COMPLETED' : 'DISQUALIFIED') : 'DISQUALIFIED';
+  aiEval.decision = newSafetyStatus === 'PASS' ? 'QUALIFIED' : 'DISQUALIFIED';
+  aiEval.evaluation_status = newSafetyStatus === 'PASS' ? 'COMPLETED' : 'DISQUALIFIED';
 
   inMemoryDB.aiEvaluations.set(aiEval.id, aiEval);
 
