@@ -198,6 +198,7 @@ export default function AdminAIJudgePage() {
                 <tr>
                   <th className="p-3">Team</th>
                   <th className="p-3">Submission</th>
+                  <th className="p-3">Validation Status</th>
                   <th className="p-3">Safety Status</th>
                   <th className="p-3">Score Breakdown</th>
                   <th className="p-3">Total Score</th>
@@ -206,7 +207,11 @@ export default function AdminAIJudgePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-studio-800">
-                {queue.map(({ team, submission, evaluation }) => (
+                {queue.map(({ team, submission, evaluation }) => {
+                  const valStatus = evaluation?.validation?.status || (evaluation?.decision === 'DISQUALIFIED' && evaluation.total_score === 0 ? 'INVALID_SUBMISSION' : 'PASS');
+                  const isInvalid = valStatus === 'INVALID_SUBMISSION';
+
+                  return (
                   <tr key={team.id} className="hover:bg-studio-850">
                     <td className="p-3">
                       <span className="font-black text-amber-400 block">{team.team_code}</span>
@@ -219,6 +224,20 @@ export default function AdminAIJudgePage() {
                       }`}>
                         {submission ? submission.status : 'NO SUBMISSION'}
                       </span>
+                    </td>
+
+                    <td className="p-3">
+                      {evaluation ? (
+                        <span className={`px-2 py-0.5 rounded font-extrabold text-[10px] ${
+                          valStatus === 'PASS' || valStatus === 'VALID' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                          valStatus === 'WARNING' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                          'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                        }`}>
+                          {valStatus === 'INVALID_SUBMISSION' ? 'INVALID' : valStatus}
+                        </span>
+                      ) : (
+                        <span className="text-gray-500">—</span>
+                      )}
                     </td>
 
                     <td className="p-3">
@@ -237,16 +256,20 @@ export default function AdminAIJudgePage() {
 
                     <td className="p-3 text-[11px]">
                       {evaluation ? (
-                        <div className="space-y-0.5 text-gray-300 font-mono">
-                          <span>Char: {evaluation.character_development_score}/30 &bull; Rel: {evaluation.relationship_score}/20</span>
-                        </div>
+                        isInvalid ? (
+                          <span className="text-rose-400 font-bold">NOT EVALUATED</span>
+                        ) : (
+                          <div className="space-y-0.5 text-gray-300 font-mono">
+                            <span>Char: {evaluation.character_development_score}/30 &bull; Rel: {evaluation.relationship_score}/20</span>
+                          </div>
+                        )
                       ) : (
                         <span className="text-gray-500">—</span>
                       )}
                     </td>
 
                     <td className="p-3 font-bold text-cyanGlow font-mono text-sm">
-                      {evaluation ? `${evaluation.total_score} / 100` : '—'}
+                      {evaluation ? (isInvalid ? <span className="text-rose-400 font-bold">0 / 100</span> : `${evaluation.total_score} / 100`) : '—'}
                     </td>
 
                     <td className="p-3 font-bold">
@@ -275,7 +298,7 @@ export default function AdminAIJudgePage() {
                               <button
                                 onClick={() => setJsonModal(evaluation)}
                                 className="p-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 text-cyanGlow transition"
-                                title="View Structured Evaluation JSON"
+                                title="View Structured Evaluation & Validation JSON"
                               >
                                 <FileJson className="w-4 h-4" />
                               </button>
@@ -301,23 +324,64 @@ export default function AdminAIJudgePage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                );
+                })}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* STRUCTURED JSON MODAL */}
+        {/* STRUCTURED JSON & VALIDATION DETAILS MODAL */}
         {jsonModal && (
           <div className="fixed inset-0 z-50 bg-studio-950/80 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="glass-panel max-w-xl w-full p-6 rounded-2xl border border-amber-500/40 bg-studio-900 space-y-4">
+            <div className="glass-panel max-w-2xl w-full p-6 rounded-2xl border border-amber-500/40 bg-studio-900 space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-black text-white">Structured Evaluation JSON</h3>
+                <h3 className="text-base font-black text-white">Structured Evaluation & Validation Details</h3>
                 <button onClick={() => setJsonModal(null)} className="text-gray-400 hover:text-white text-xs">Close</button>
               </div>
-              <pre className="p-4 rounded-xl bg-studio-950 border border-studio-800 text-xs text-amber-400 font-mono max-h-96 overflow-y-auto">
-                {JSON.stringify(jsonModal, null, 2)}
-              </pre>
+
+              {jsonModal.validation && jsonModal.validation.valid === false && (
+                <div className="p-4 rounded-xl bg-rose-500/20 border border-rose-500/40 space-y-2">
+                  <div className="flex items-center space-x-2 text-rose-400 font-black text-sm">
+                    <XCircle className="w-5 h-5 shrink-0" />
+                    <span>❌ INVALID SUBMISSION</span>
+                  </div>
+                  <p className="text-xs text-rose-200">
+                    <strong>Reason:</strong> {jsonModal.validation.reason}
+                  </p>
+                  <div className="text-xs text-rose-300 font-bold">
+                    AI Creative Score: <span className="bg-rose-950 px-2 py-0.5 rounded border border-rose-800">NOT EVALUATED</span>
+                  </div>
+                </div>
+              )}
+
+              {jsonModal.validation?.fieldDetails && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase text-gray-300">Field Validation Breakdown</h4>
+                  <div className="grid grid-cols-1 gap-2 text-xs">
+                    {Object.entries(jsonModal.validation.fieldDetails).map(([key, detail]) => (
+                      <div key={key} className="p-2.5 rounded-lg bg-studio-950 border border-studio-800 flex items-start justify-between">
+                        <div>
+                          <span className="font-bold text-white block">{detail.label}</span>
+                          <span className="text-[11px] text-gray-400">{detail.reason}</span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          detail.valid ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                        }`}>
+                          {detail.valid ? 'PASS' : 'FAIL'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <h4 className="text-xs font-bold uppercase text-gray-300 mb-2">Raw JSON Payload</h4>
+                <pre className="p-4 rounded-xl bg-studio-950 border border-studio-800 text-xs text-amber-400 font-mono max-h-60 overflow-y-auto">
+                  {JSON.stringify(jsonModal, null, 2)}
+                </pre>
+              </div>
             </div>
           </div>
         )}

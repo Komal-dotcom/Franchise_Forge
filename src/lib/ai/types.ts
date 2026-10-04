@@ -24,12 +24,15 @@ export interface Round3RubricScores {
   visual_poster_quality: number;    // Max 15
 }
 
+import { SubmissionValidationResult } from './validator';
+
 export interface EvaluationResult {
   safety: SafetyCheckResult;
   scores: RubricScores;
   total_score: number;
   decision: EvaluationDecision;
   feedback: string[];
+  validation?: SubmissionValidationResult;
 }
 
 export interface Round3EvaluationResult {

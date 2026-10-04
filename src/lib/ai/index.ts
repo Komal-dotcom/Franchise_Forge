@@ -15,6 +15,8 @@ export function getAIProvider(): AIProvider {
   return new MockAIProvider();
 }
 
+import { validateRound2Submission } from './validator';
+
 /**
  * Master Round 2 AI Judging Pipeline
  * 
@@ -22,6 +24,35 @@ export function getAIProvider(): AIProvider {
  * Preserves actual rubric scores and ties (no artificial unique-score manipulation).
  */
 export async function executeAIJudgingPipeline(submission: Round2Submission): Promise<EvaluationResult> {
+  // PRE-SCORING SUBMISSION VALIDATION STAGE
+  const validation = await validateRound2Submission(submission);
+
+  if (!validation.valid || validation.status === 'INVALID_SUBMISSION') {
+    return {
+      safety: {
+        status: 'PASS',
+        reason: 'Pre-scoring validation failed prior to content inspection.',
+        confidence: 1.0,
+      },
+      scores: {
+        character_development: 0,
+        relationship: 0,
+        originality: 0,
+        visual_quality: 0,
+        prompt_quality: 0,
+        prompt_image_consistency: 0,
+      },
+      total_score: 0,
+      decision: 'DISQUALIFIED',
+      feedback: [
+        '❌ INVALID SUBMISSION',
+        `Reason: ${validation.reason}`,
+        'Creative evaluation: NOT EVALUATED',
+      ],
+      validation,
+    };
+  }
+
   const provider = getAIProvider();
 
   // Resolve private S3 paths into temporary presigned download URLs for AI model access
@@ -81,6 +112,7 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
         `Disqualified: ${safetyResult.reason}`,
         'Prohibited explicit content detected in submission assets.',
       ],
+      validation,
     };
   }
 
@@ -102,6 +134,7 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
         `Pending Organizer Review: ${safetyResult.reason}`,
         'Submission assets queued for manual review by competition admin.',
       ],
+      validation,
     };
   }
 
@@ -138,13 +171,20 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
     prompt_image_consistency: Math.min(10, Math.max(0, visualEval.prompt_image_consistency || 0)),
   };
 
-  const total_score = 
+  let rawTotalScore = 
     scores.character_development +
     scores.relationship +
     scores.originality +
     scores.visual_quality +
     scores.prompt_quality +
     scores.prompt_image_consistency;
+
+  // Enforce score cap guardrails if validation produced a warning cap
+  if (validation.scoreCap !== undefined) {
+    rawTotalScore = Math.min(rawTotalScore, validation.scoreCap);
+  }
+
+  const total_score = rawTotalScore;
 
   // Qualification benchmark (Threshold >= 70 points out of 100)
   const decision = total_score >= 70 ? 'QUALIFIED' : 'DISQUALIFIED';
@@ -157,6 +197,7 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
     total_score,
     decision,
     feedback: combinedFeedback,
+    validation,
   };
 }
 

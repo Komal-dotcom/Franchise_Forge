@@ -341,6 +341,7 @@ export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<
     safety_status: evalResult.safety.status,
     safety_reason: evalResult.safety.reason,
     safety_confidence: evalResult.safety.confidence,
+    validation: evalResult.validation,
     character_development_score: evalResult.scores.character_development,
     relationship_score: evalResult.scores.relationship,
     originality_score: evalResult.scores.originality,

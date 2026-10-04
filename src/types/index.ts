@@ -104,6 +104,13 @@ export interface AIEvaluation {
   safety_status: SafetyStatus;
   safety_reason?: string;
   safety_confidence?: number;
+  validation?: {
+    valid: boolean;
+    status: 'VALID' | 'WARNING' | 'INVALID_SUBMISSION';
+    reason: string;
+    fieldDetails: Record<string, { field: string; label: string; valid: boolean; reason: string }>;
+    scoreCap?: number;
+  };
   character_development_score: number;
   relationship_score: number;
   originality_score: number;
