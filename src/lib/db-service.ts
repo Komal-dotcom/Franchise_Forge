@@ -58,8 +58,13 @@ export async function commitImportedTeams(summary: ImportSummary): Promise<{ suc
   for (const item of summary.preview) {
     if (item.errors.length > 0) continue;
 
+    const cleanCode = item.team_code.trim().toUpperCase();
+
+    // 1. Look up existing team in memory or DB to reuse canonical UUID
+    let existingTeam = await getTeamByCode(cleanCode);
+
+    const teamId = existingTeam?.id || (typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2));
     const accessHash = await hashAccessCode(item.access_code);
-    const teamId = typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2);
 
     const teamRecord: Team = {
       id: teamId,
@@ -67,24 +72,30 @@ export async function commitImportedTeams(summary: ImportSummary): Promise<{ suc
       team_name: item.team_name,
       access_code_hash: accessHash,
       access_code: item.access_code,
-      current_round: 1,
-      status: 'ACTIVE',
-      created_at: new Date().toISOString(),
+      current_round: existingTeam?.current_round || 1,
+      status: existingTeam?.status || 'ACTIVE',
+      created_at: existingTeam?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
-    // Remove any existing team with same team_code from memory to avoid duplicates
+    // Store in inMemoryDB with canonical teamId
     for (const [id, t] of inMemoryDB.teams.entries()) {
-      if (t.team_code.toUpperCase() === item.team_code.toUpperCase()) {
+      if (t.team_code.toUpperCase() === cleanCode || id === teamId) {
         inMemoryDB.teams.delete(id);
       }
     }
-
     inMemoryDB.teams.set(teamId, teamRecord);
+
+    // Remove old member records for this canonical teamId from inMemoryDB
+    for (const [memId, mem] of inMemoryDB.teamMembers.entries()) {
+      if (mem.team_id === teamId) {
+        inMemoryDB.teamMembers.delete(memId);
+      }
+    }
 
     const memberRecords: TeamMember[] = item.members.map((m) => ({
       id: typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2),
-      team_id: teamId,
+      team_id: teamId, // Guaranteed to match canonical teamId
       member_name: m.member_name,
       email: m.email,
       phone_number: m.phone_number,
@@ -95,35 +106,46 @@ export async function commitImportedTeams(summary: ImportSummary): Promise<{ suc
 
     memberRecords.forEach((mem) => inMemoryDB.teamMembers.set(mem.id, mem));
 
-    syncSupabase(
-      supabaseAdmin.from('teams').upsert(
-        {
-          id: teamRecord.id,
-          team_code: teamRecord.team_code,
-          team_name: teamRecord.team_name,
-          access_code_hash: teamRecord.access_code_hash,
-          current_round: teamRecord.current_round,
-          status: teamRecord.status,
-          updated_at: teamRecord.updated_at,
-        },
-        { onConflict: 'team_code' }
-      )
-    );
+    // Persist team record to Supabase
+    try {
+      await safeQuery(
+        supabaseAdmin.from('teams').upsert(
+          {
+            id: teamRecord.id,
+            team_code: teamRecord.team_code,
+            team_name: teamRecord.team_name,
+            access_code_hash: teamRecord.access_code_hash,
+            access_code: teamRecord.access_code,
+            current_round: teamRecord.current_round,
+            status: teamRecord.status,
+            updated_at: teamRecord.updated_at,
+          },
+          { onConflict: 'team_code' }
+        )
+      );
+    } catch (e) {
+      console.error('Failed to upsert team to Supabase:', e);
+    }
 
-    syncSupabase(
-      supabaseAdmin.from('team_members').upsert(
-        memberRecords.map((mem) => ({
-          id: mem.id,
-          team_id: mem.team_id,
-          member_name: mem.member_name,
-          email: mem.email,
-          phone_number: mem.phone_number,
-          semester: mem.semester,
-          section: mem.section,
-        }))
-      )
-    );
-
+    // Persist team_members to Supabase (delete old members for this teamId first to prevent stale rows)
+    try {
+      await safeQuery(supabaseAdmin.from('team_members').delete().eq('team_id', teamId));
+      await safeQuery(
+        supabaseAdmin.from('team_members').upsert(
+          memberRecords.map((mem) => ({
+            id: mem.id,
+            team_id: mem.team_id,
+            member_name: mem.member_name,
+            email: mem.email,
+            phone_number: mem.phone_number,
+            semester: mem.semester,
+            section: mem.section,
+          }))
+        )
+      );
+    } catch (e) {
+      console.error('Failed to upsert team_members to Supabase:', e);
+    }
 
     importedCount++;
   }
@@ -173,10 +195,22 @@ export async function getTeamWithMembers(teamId: string): Promise<TeamWithMember
   if (!teamId || typeof teamId !== 'string') return null;
   const cleanId = teamId.trim();
 
-  // 1. Direct Map lookup by ID
-  let team: Team | undefined = inMemoryDB.teams.get(cleanId);
+  // 1. First query Supabase by id or team_code for authoritative record
+  let team: Team | undefined;
+  try {
+    const data = await safeQuery(
+      supabaseAdmin.from('teams').select('*').or(`id.eq.${cleanId},team_code.eq.${cleanId.toUpperCase()}`).single()
+    );
+    if (data) {
+      team = data as Team;
+      inMemoryDB.teams.set(team.id, team);
+    }
+  } catch (e) { }
 
-  // 2. Flexible lookup in inMemoryDB by id, team_code, or team_name
+  // 2. Fallback to inMemoryDB if Supabase is offline or team not yet in DB
+  if (!team) {
+    team = inMemoryDB.teams.get(cleanId);
+  }
   if (!team) {
     const upperClean = cleanId.toUpperCase();
     for (const t of inMemoryDB.teams.values()) {
@@ -191,32 +225,39 @@ export async function getTeamWithMembers(teamId: string): Promise<TeamWithMember
     }
   }
 
-  // 3. Fallback: Query Supabase by id or team_code in a single query
-  if (!team) {
-    try {
-      const data = await safeQuery(
-        supabaseAdmin.from('teams').select('*').or(`id.eq.${cleanId},team_code.eq.${cleanId.toUpperCase()}`).single()
-      );
-      if (data) {
-        team = data as Team;
-        inMemoryDB.teams.set(team.id, team);
-      }
-    } catch (e) { }
-  }
-
   if (!team) return null;
 
-  // Retrieve member roster
-  let members: TeamMember[] = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === team!.id);
+  // 3. Query Supabase for team_members first (Authoritative Source of Truth)
+  let members: TeamMember[] = [];
+  try {
+    const data = await safeQuery(supabaseAdmin.from('team_members').select('*').eq('team_id', team.id));
+    if (data && Array.isArray(data) && data.length > 0) {
+      members = data as TeamMember[];
+      // Sync DB members to inMemoryDB
+      members.forEach((mem) => inMemoryDB.teamMembers.set(mem.id, mem));
+    }
+  } catch (e) { }
 
+  // 4. If Supabase team_members is empty, check inMemoryDB and reconcile to Supabase
   if (members.length === 0) {
-    try {
-      const data = await safeQuery(supabaseAdmin.from('team_members').select('*').eq('team_id', team.id));
-      if (data && Array.isArray(data) && data.length > 0) {
-        members = data as TeamMember[];
-        members.forEach((mem) => inMemoryDB.teamMembers.set(mem.id, mem));
-      }
-    } catch (e) { }
+    members = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === team!.id);
+    if (members.length > 0) {
+      try {
+        syncSupabase(
+          supabaseAdmin.from('team_members').upsert(
+            members.map((mem) => ({
+              id: mem.id,
+              team_id: team!.id,
+              member_name: mem.member_name,
+              email: mem.email,
+              phone_number: mem.phone_number,
+              semester: mem.semester,
+              section: mem.section,
+            }))
+          )
+        );
+      } catch (e) { }
+    }
   }
 
   return { ...team, members };
@@ -262,6 +303,44 @@ export async function getAllTeamsWithMembers(): Promise<TeamWithMembers[]> {
 }
 
 export const getAllTeams = getAllTeamsWithMembers;
+
+/**
+ * Safe Data Reconciliation helper:
+ * Scans teams in memory and Supabase to ensure all member roster records
+ * are correctly mapped to their canonical team UUID in Supabase and fully persisted.
+ */
+export async function reconcileTeamMembersData(): Promise<{ reconciledTeamsCount: number; reconciledMembersCount: number }> {
+  let reconciledTeamsCount = 0;
+  let reconciledMembersCount = 0;
+
+  for (const team of inMemoryDB.teams.values()) {
+    const mems = Array.from(inMemoryDB.teamMembers.values()).filter((m) => m.team_id === team.id);
+    if (mems.length > 0) {
+      try {
+        const dbMems = await safeQuery(supabaseAdmin.from('team_members').select('*').eq('team_id', team.id));
+        if (!dbMems || (Array.isArray(dbMems) && dbMems.length === 0)) {
+          await safeQuery(
+            supabaseAdmin.from('team_members').upsert(
+              mems.map((mem) => ({
+                id: mem.id,
+                team_id: team.id,
+                member_name: mem.member_name,
+                email: mem.email,
+                phone_number: mem.phone_number,
+                semester: mem.semester,
+                section: mem.section,
+              }))
+            )
+          );
+          reconciledTeamsCount++;
+          reconciledMembersCount += mems.length;
+        }
+      } catch (e) {}
+    }
+  }
+
+  return { reconciledTeamsCount, reconciledMembersCount };
+}
 
 
 /**
