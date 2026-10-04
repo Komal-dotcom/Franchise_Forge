@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Sparkles, Save, CheckCircle2, AlertTriangle, ArrowLeft, Lock } from 'lucide-react';
+import { Sparkles, Save, CheckCircle2, AlertTriangle, ArrowLeft, Lock, Upload } from 'lucide-react';
 
 export default function Round3Page() {
   const [formData, setFormData] = useState({
@@ -18,12 +18,48 @@ export default function Round3Page() {
   const [isRound3Open, setIsRound3Open] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   useEffect(() => {
     fetchSubmission();
   }, []);
+
+  const handleFileUpload = async (file: File) => {
+    try {
+      setUploading(true);
+      setError('');
+      const initRes = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          file_type: file.type,
+          file_size: file.size,
+          category: 'round3',
+        }),
+      });
+
+      const initData = await initRes.json();
+      if (!initRes.ok) throw new Error(initData.error || 'Failed to initialize upload.');
+
+      const uploadRes = await fetch(initData.upload_url, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+
+      if (!uploadRes.ok) throw new Error('Failed to upload file to S3 bucket.');
+
+      setFormData((prev) => ({ ...prev, promotional_asset_s3_path: initData.s3_path }));
+      setSuccessMsg(`✓ File uploaded successfully: ${initData.s3_path}`);
+    } catch (err: any) {
+      setError(err.message || 'File upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const fetchSubmission = async () => {
     try {
@@ -285,14 +321,32 @@ export default function Round3Page() {
           <label className="block text-xs font-bold uppercase tracking-wider text-violetGlow mb-2">
             Promotional Poster S3 Reference Path
           </label>
-          <input
-            type="text"
-            disabled={isLocked}
-            placeholder="submissions/TEAM_ID/round3/poster.png"
-            value={formData.promotional_asset_s3_path}
-            onChange={(e) => setFormData({ ...formData, promotional_asset_s3_path: e.target.value })}
-            className="w-full px-4 py-3 rounded-xl bg-studio-900 border border-studio-700 text-white text-sm focus:border-violetGlow disabled:opacity-60"
-          />
+          <div className="flex space-x-2 items-center">
+            <input
+              type="text"
+              disabled={isLocked}
+              placeholder="submissions/TEAM_ID/round3/poster.png"
+              value={formData.promotional_asset_s3_path}
+              onChange={(e) => setFormData({ ...formData, promotional_asset_s3_path: e.target.value })}
+              className="flex-1 px-4 py-3 rounded-xl bg-studio-900 border border-studio-700 text-white text-sm focus:border-violetGlow disabled:opacity-60"
+            />
+            {!isLocked && (
+              <label className="cursor-pointer px-4 py-3 bg-studio-800 hover:bg-studio-700 border border-studio-600 rounded-xl text-xs font-bold text-violetGlow flex items-center space-x-1 shrink-0">
+                <Upload className="w-4 h-4" />
+                <span>{uploading ? 'Uploading...' : 'Upload'}</span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileUpload(file);
+                  }}
+                />
+              </label>
+            )}
+          </div>
         </div>
 
         {!isLocked && (

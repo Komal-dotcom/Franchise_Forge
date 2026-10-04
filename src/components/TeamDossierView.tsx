@@ -371,9 +371,19 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
                     <p><span className="text-gray-500">Weakness:</span> {round2.hero_data.weakness}</p>
                     <p><span className="text-gray-500">Visual Prompt:</span> <span className="italic font-mono text-gray-300">{round2.hero_prompt}</span></p>
                     {round2.hero_image_s3_path && (
-                      <div className="mt-2 pt-2 border-t border-studio-800">
-                        <span className="text-[10px] font-bold text-gray-500">S3 Asset Reference:</span>
-                        <p className="font-mono text-[11px] text-amber-400 truncate">{round2.hero_image_s3_path}</p>
+                      <div className="mt-2 pt-2 border-t border-studio-800 flex items-center justify-between">
+                        <div className="overflow-hidden">
+                          <span className="text-[10px] font-bold text-gray-500">S3 Asset Reference:</span>
+                          <p className="font-mono text-[11px] text-amber-400 truncate">{round2.hero_image_s3_path}</p>
+                        </div>
+                        <a
+                          href={`/api/assets/download?path=${encodeURIComponent(round2.hero_image_s3_path)}&redirect=true`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 bg-studio-800 hover:bg-studio-700 text-amber-400 font-bold text-[10px] rounded border border-studio-700 shrink-0 ml-2"
+                        >
+                          View Asset ↗
+                        </a>
                       </div>
                     )}
                   </div>
@@ -390,9 +400,19 @@ export default function TeamDossierView({ dossier, onClose, onRefresh }: Props) 
                     <p><span className="text-gray-500">Weakness:</span> {round2.villain_data.weakness}</p>
                     <p><span className="text-gray-500">Visual Prompt:</span> <span className="italic font-mono text-gray-300">{round2.villain_prompt}</span></p>
                     {round2.villain_image_s3_path && (
-                      <div className="mt-2 pt-2 border-t border-studio-800">
-                        <span className="text-[10px] font-bold text-gray-500">S3 Asset Reference:</span>
-                        <p className="font-mono text-[11px] text-amber-400 truncate">{round2.villain_image_s3_path}</p>
+                      <div className="mt-2 pt-2 border-t border-studio-800 flex items-center justify-between">
+                        <div className="overflow-hidden">
+                          <span className="text-[10px] font-bold text-gray-500">S3 Asset Reference:</span>
+                          <p className="font-mono text-[11px] text-amber-400 truncate">{round2.villain_image_s3_path}</p>
+                        </div>
+                        <a
+                          href={`/api/assets/download?path=${encodeURIComponent(round2.villain_image_s3_path)}&redirect=true`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 bg-studio-800 hover:bg-studio-700 text-rose-400 font-bold text-[10px] rounded border border-studio-700 shrink-0 ml-2"
+                        >
+                          View Asset ↗
+                        </a>
                       </div>
                     )}
                   </div>

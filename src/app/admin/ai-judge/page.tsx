@@ -332,13 +332,33 @@ export default function AdminAIJudgePage() {
               </div>
 
               <div className="grid grid-cols-2 gap-4 text-xs">
-                <div className="p-3 rounded-xl bg-studio-950 border border-studio-800">
+                <div className="p-3 rounded-xl bg-studio-950 border border-studio-800 space-y-2">
                   <span className="font-bold text-emerald-400 block mb-1">Hero Asset</span>
                   <p className="font-mono text-[10px] text-gray-400 truncate">{imageModal.hero || 'No image reference'}</p>
+                  {imageModal.hero && (
+                    <a
+                      href={`/api/assets/download?path=${encodeURIComponent(imageModal.hero)}&redirect=true`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-block px-3 py-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 text-cyanGlow font-bold text-[10px] border border-studio-700"
+                    >
+                      View Private Asset ↗
+                    </a>
+                  )}
                 </div>
-                <div className="p-3 rounded-xl bg-studio-950 border border-studio-800">
+                <div className="p-3 rounded-xl bg-studio-950 border border-studio-800 space-y-2">
                   <span className="font-bold text-rose-400 block mb-1">Villain Asset</span>
                   <p className="font-mono text-[10px] text-gray-400 truncate">{imageModal.villain || 'No image reference'}</p>
+                  {imageModal.villain && (
+                    <a
+                      href={`/api/assets/download?path=${encodeURIComponent(imageModal.villain)}&redirect=true`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-block px-3 py-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 text-rose-400 font-bold text-[10px] border border-studio-700"
+                    >
+                      View Private Asset ↗
+                    </a>
+                  )}
                 </div>
               </div>
             </div>

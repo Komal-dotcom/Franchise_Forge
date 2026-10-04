@@ -28,6 +28,7 @@ export default function Round2Page() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingField, setUploadingField] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -36,6 +37,45 @@ export default function Round2Page() {
   useEffect(() => {
     fetchSubmission();
   }, []);
+
+  const handleFileUpload = async (
+    file: File,
+    category: 'round2/hero' | 'round2/villain' | 'round2/supporting',
+    onComplete: (s3Path: string) => void
+  ) => {
+    try {
+      setUploadingField(category);
+      setError('');
+      const initRes = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          file_type: file.type,
+          file_size: file.size,
+          category,
+        }),
+      });
+
+      const initData = await initRes.json();
+      if (!initRes.ok) throw new Error(initData.error || 'Failed to initialize upload.');
+
+      const uploadRes = await fetch(initData.upload_url, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+
+      if (!uploadRes.ok) throw new Error('Failed to upload file to S3 bucket.');
+
+      onComplete(initData.s3_path);
+      setSuccessMsg(`✓ File uploaded successfully: ${initData.s3_path}`);
+    } catch (err: any) {
+      setError(err.message || 'File upload failed');
+    } finally {
+      setUploadingField(null);
+    }
+  };
 
   const fetchSubmission = async () => {
     try {
@@ -323,14 +363,32 @@ export default function Round2Page() {
 
             <div>
               <label className="block text-xs font-bold uppercase text-gray-300 mb-1">Hero Image S3 Path / Data Reference</label>
-              <input
-                type="text"
-                disabled={isLocked}
-                placeholder="submissions/TEAM_ID/round2/hero/hero.png"
-                value={heroImage}
-                onChange={(e) => setHeroImage(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-studio-900 border border-studio-700 text-white text-sm focus:border-gold-400"
-              />
+              <div className="flex space-x-2 items-center">
+                <input
+                  type="text"
+                  disabled={isLocked}
+                  placeholder="submissions/TEAM_ID/round2/hero/hero.png"
+                  value={heroImage}
+                  onChange={(e) => setHeroImage(e.target.value)}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-studio-900 border border-studio-700 text-white text-sm focus:border-gold-400"
+                />
+                {!isLocked && (
+                  <label className="cursor-pointer px-3 py-2.5 bg-studio-800 hover:bg-studio-700 border border-studio-600 rounded-xl text-xs font-bold text-cyanGlow flex items-center space-x-1 shrink-0">
+                    <Upload className="w-4 h-4" />
+                    <span>{uploadingField === 'round2/hero' ? 'Uploading...' : 'Upload'}</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      disabled={uploadingField !== null}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file, 'round2/hero', (path) => setHeroImage(path));
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -395,14 +453,32 @@ export default function Round2Page() {
 
             <div>
               <label className="block text-xs font-bold uppercase text-gray-300 mb-1">Villain Image S3 Path / Data Reference</label>
-              <input
-                type="text"
-                disabled={isLocked}
-                placeholder="submissions/TEAM_ID/round2/villain/villain.png"
-                value={villainImage}
-                onChange={(e) => setVillainImage(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-studio-900 border border-studio-700 text-white text-sm focus:border-crimsonGlow"
-              />
+              <div className="flex space-x-2 items-center">
+                <input
+                  type="text"
+                  disabled={isLocked}
+                  placeholder="submissions/TEAM_ID/round2/villain/villain.png"
+                  value={villainImage}
+                  onChange={(e) => setVillainImage(e.target.value)}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-studio-900 border border-studio-700 text-white text-sm focus:border-crimsonGlow"
+                />
+                {!isLocked && (
+                  <label className="cursor-pointer px-3 py-2.5 bg-studio-800 hover:bg-studio-700 border border-studio-600 rounded-xl text-xs font-bold text-crimsonGlow flex items-center space-x-1 shrink-0">
+                    <Upload className="w-4 h-4" />
+                    <span>{uploadingField === 'round2/villain' ? 'Uploading...' : 'Upload'}</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      disabled={uploadingField !== null}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file, 'round2/villain', (path) => setVillainImage(path));
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
             </div>
           </div>
         </div>

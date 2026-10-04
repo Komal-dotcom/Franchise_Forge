@@ -2,6 +2,7 @@ import { AIProvider, EvaluationResult, RubricScores, SafetyCheckResult } from '.
 import { MockAIProvider } from './mock-provider';
 import { LocalOllamaProvider } from './ollama-provider';
 import { Round2Submission } from '@/types';
+import { getPresignedDownloadUrl } from '../s3';
 
 /**
  * Instantiates configured AI Provider instance
@@ -23,13 +24,42 @@ export function getAIProvider(): AIProvider {
 export async function executeAIJudgingPipeline(submission: Round2Submission): Promise<EvaluationResult> {
   const provider = getAIProvider();
 
+  // Resolve private S3 paths into temporary presigned download URLs for AI model access
+  let heroImageUrl = submission.hero_image_s3_path || '';
+  if (submission.hero_image_s3_path) {
+    try {
+      const presigned = await getPresignedDownloadUrl(submission.hero_image_s3_path, 1800);
+      heroImageUrl = presigned.downloadUrl;
+    } catch (e) {
+      console.warn('Failed to resolve presigned download URL for hero image:', e);
+    }
+  }
+
+  let villainImageUrl = submission.villain_image_s3_path || '';
+  if (submission.villain_image_s3_path) {
+    try {
+      const presigned = await getPresignedDownloadUrl(submission.villain_image_s3_path, 1800);
+      villainImageUrl = presigned.downloadUrl;
+    } catch (e) {
+      console.warn('Failed to resolve presigned download URL for villain image:', e);
+    }
+  }
+
+  let supportingImageUrl = submission.supporting_character_image_s3_path || '';
+  if (submission.supporting_character_image_s3_path) {
+    try {
+      const presigned = await getPresignedDownloadUrl(submission.supporting_character_image_s3_path, 1800);
+      supportingImageUrl = presigned.downloadUrl;
+    } catch (e) {
+      console.warn('Failed to resolve presigned download URL for supporting character image:', e);
+    }
+  }
+
   // 1. Image Safety Check
   const combinedContext = `Hero: ${submission.hero_data.name} ${submission.hero_data.description} Villain: ${submission.villain_data.name} ${submission.villain_data.description}`;
-  const heroImageRef = submission.hero_image_s3_path || '';
-  const villainImageRef = submission.villain_image_s3_path || '';
 
   const safetyResult: SafetyCheckResult = await provider.checkImageSafety(
-    `${heroImageRef} ${villainImageRef}`,
+    `${heroImageUrl} ${villainImageUrl}`,
     combinedContext
   );
 
@@ -92,9 +122,9 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
       supporting: submission.supporting_character_prompt,
     },
     {
-      hero: submission.hero_image_s3_path || undefined,
-      villain: submission.villain_image_s3_path || undefined,
-      supporting: submission.supporting_character_image_s3_path || undefined,
+      hero: heroImageUrl || undefined,
+      villain: villainImageUrl || undefined,
+      supporting: supportingImageUrl || undefined,
     }
   );
 
@@ -129,3 +159,4 @@ export async function executeAIJudgingPipeline(submission: Round2Submission): Pr
     feedback: combinedFeedback,
   };
 }
+

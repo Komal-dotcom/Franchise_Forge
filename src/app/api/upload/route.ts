@@ -20,13 +20,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
+    const allowedCategories: S3AssetCategory[] = ['round1', 'round2/hero', 'round2/villain', 'round2/supporting', 'round3'];
+    if (!allowedCategories.includes(category as S3AssetCategory)) {
+      return NextResponse.json({ error: 'Invalid S3 upload category.' }, { status: 400 });
+    }
+
     const s3Key = buildS3Path(teamSession.team_id, category as S3AssetCategory, filename);
     const presigned = await getPresignedUploadUrl(s3Key, file_type);
 
     return NextResponse.json({
       success: true,
       upload_url: presigned.uploadUrl,
-      public_url: presigned.publicUrl,
       s3_path: s3Key,
       is_mock: presigned.isMock,
     });
