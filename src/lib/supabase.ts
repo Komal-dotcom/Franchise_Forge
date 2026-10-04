@@ -49,40 +49,4 @@ const globalForDB = globalThis as unknown as { inMemoryDB?: InMemoryDatabase };
 
 export const inMemoryDB = globalForDB.inMemoryDB || (globalForDB.inMemoryDB = new InMemoryDatabase());
 
-// Seed initial default team if empty
-if (inMemoryDB.teams.size === 0) {
-  const seedTeamId = 'seed-team-001';
-  inMemoryDB.teams.set(seedTeamId, {
-    id: seedTeamId,
-    team_code: 'FF26-001',
-    team_name: 'Studio Alpha',
-    access_code_hash: '$2a$10$wN9F/00NqGZ/T738VvM/8.XfD6.gM2234567890abcdefghijkl',
-    access_code: '3LEDAW',
-    current_round: 1,
-    status: 'ACTIVE',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  });
 
-  inMemoryDB.teamMembers.set('seed-mem-1', {
-    id: 'seed-mem-1',
-    team_id: seedTeamId,
-    member_name: 'Rahul Sharma',
-    email: 'rahul@studioalpha.com',
-    phone_number: '9876543210',
-    semester: '5',
-    section: 'A',
-    created_at: new Date().toISOString(),
-  });
-
-  inMemoryDB.teamMembers.set('seed-mem-2', {
-    id: 'seed-mem-2',
-    team_id: seedTeamId,
-    member_name: 'Priya Verma',
-    email: 'priya@studioalpha.com',
-    phone_number: '9876543211',
-    semester: '5',
-    section: 'A',
-    created_at: new Date().toISOString(),
-  });
-}

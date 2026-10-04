@@ -61,12 +61,7 @@ describe('CSV Importer Validation Engine', () => {
     expect(studioQuad?.errors[0]).toContain('Maximum allowed is 3 members');
   });
 
-  it('should authenticate seed team FF26-001 credentials', async () => {
-    const fetchedTeam = await getTeamByCode('FF26-001');
-    expect(fetchedTeam).not.toBeNull();
-    const isValid = await verifyAccessCode(fetchedTeam!.access_code || '3LEDAW', fetchedTeam!.access_code_hash, fetchedTeam!.access_code);
-    expect(isValid).toBe(true);
-  });
+
 
   it('should allow team login using committed access codes', async () => {
     const { data } = parseCSV(validCSV);
