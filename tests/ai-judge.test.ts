@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { executeAIJudgingPipeline } from '../src/lib/ai';
 import { submitRound3ManualScore } from '../src/lib/db-service';
 import { Round1Submission, Round2Submission } from '../src/types';
@@ -473,4 +473,94 @@ describe('AI Judge & Safety Pipeline', () => {
     expect(result.valid).toBe(true);
     expect(result.status).toBe('VALID');
   });
+
+  it('TEST 14: AI provider exception or timeout fallback -> returns REVIEW_REQUIRED, score 0', async () => {
+    const validSub: Round2Submission = {
+      id: 'sub-timeout-test',
+      team_id: 'team-timeout-test',
+      hero_data: {
+        name: 'Nyx',
+        personality: 'Stoic cybernetic assassin',
+        goal: 'Dismantle corporate network',
+        strengths: 'Stealth and high-frequency blade skills',
+        weakness: 'Distrustful of allies',
+        conflict: 'Internal battle with machine programming',
+        description: 'A agile cybernetic warrior with glowing blue optics and obsidian armor.',
+      },
+      villain_data: {
+        name: 'Kael',
+        personality: 'Cold ruthless CEO',
+        goal: 'Digitalize all human consciousness',
+        strengths: 'Infinite resource bandwidth',
+        weakness: 'Arrogance and lack of empathy',
+        conflict: 'Sees human mortality as a defect',
+        description: 'An imposing corporate overlord encased in a glowing chrome exoskeleton.',
+      },
+      hero_prompt: 'High detail portrait of Nyx standing on roof',
+      villain_prompt: 'High detail portrait of Kael in boardroom',
+      hero_image_s3_path: 'submissions/team-timeout-test/round2/hero/123_hero.png',
+      villain_image_s3_path: 'submissions/team-timeout-test/round2/villain/123_villain.png',
+      hero_villain_relationship: 'Former partners turned mortal enemies',
+      hero_villain_conflict: 'Clash over control of neural network core',
+      status: 'SUBMITTED',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { MockAIProvider } = await import('../src/lib/ai/mock-provider');
+    const spy = vi.spyOn(MockAIProvider.prototype, 'checkImageSafety').mockRejectedValue(
+      new Error('AI Provider connection timeout (504 Gateway Timeout)')
+    );
+
+    try {
+      const evalResult = await executeAIJudgingPipeline(validSub);
+      expect(evalResult.decision).toBe('REVIEW_REQUIRED');
+      expect(evalResult.safety.status).toBe('REVIEW_REQUIRED');
+      expect(evalResult.total_score).toBe(0);
+      expect(evalResult.feedback.some(f => f.toLowerCase().includes('operational error'))).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('TEST 15: Missing image reference -> validation returns INVALID_SUBMISSION, score 0, decision DISQUALIFIED', async () => {
+    const missingImageSub: Round2Submission = {
+      id: 'sub-no-image',
+      team_id: 'team-no-image',
+      hero_data: {
+        name: 'Aetheria',
+        personality: 'Noble warrior',
+        goal: 'Protect realm',
+        strengths: 'Light control',
+        weakness: 'Compassion',
+        conflict: 'Fate',
+        description: 'Noble warrior of light',
+      },
+      villain_data: {
+        name: 'Vesper',
+        personality: 'Dark lord',
+        goal: 'Conquer realm',
+        strengths: 'Shadow control',
+        weakness: 'Pride',
+        conflict: 'Fate',
+        description: 'Dark lord of shadows',
+      },
+      hero_prompt: 'Hero prompt text',
+      villain_prompt: 'Villain prompt text',
+      hero_image_s3_path: '', // Missing image path
+      villain_image_s3_path: '', // Missing image path
+      hero_villain_relationship: 'Rivals',
+      hero_villain_conflict: 'Battle',
+      status: 'SUBMITTED',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const evalResult = await executeAIJudgingPipeline(missingImageSub);
+    expect(evalResult.validation?.valid).toBe(false);
+    expect(evalResult.validation?.status).toBe('INVALID_SUBMISSION');
+    expect(evalResult.total_score).toBe(0);
+    expect(evalResult.decision).toBe('DISQUALIFIED');
+  });
 });
+

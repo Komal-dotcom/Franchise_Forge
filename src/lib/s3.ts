@@ -2,7 +2,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
-const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'franchise-forge-submissions';
+const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET_NAME || process.env.AWS_S3_BUCKET || 'franchise-forge-submissions';
 
 /**
  * Returns an S3Client instance if AWS credentials are configured, or null for mock mode.

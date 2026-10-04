@@ -455,6 +455,12 @@ export async function getRound2Submission(teamId: string): Promise<Round2Submiss
  * Triggers AI evaluation for a Round 2 Submission
  */
 export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<AIEvaluation> {
+  // 1. Prevent duplicate evaluations for the same submission
+  const existingEval = await getAIEvaluationBySubmissionId(round2SubId);
+  if (existingEval) {
+    return existingEval;
+  }
+
   let sub: Round2Submission | undefined;
   for (const s of inMemoryDB.round2Submissions.values()) {
     if (s.id === round2SubId) { sub = s; break; }
@@ -464,7 +470,31 @@ export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<
     throw new Error('Round 2 Submission not found');
   }
 
-  const evalResult = await executeAIJudgingPipeline(sub);
+  let evalResult: any;
+  try {
+    evalResult = await executeAIJudgingPipeline(sub);
+  } catch (err: any) {
+    console.error('Unhandled AI Pipeline Exception:', err);
+    evalResult = {
+      safety: {
+        status: 'REVIEW_REQUIRED',
+        reason: `AI execution failure: ${err?.message || 'Unexpected exception'}`,
+        confidence: 0,
+      },
+      scores: {
+        character_development: 0,
+        relationship: 0,
+        originality: 0,
+        visual_quality: 0,
+        prompt_quality: 0,
+        prompt_image_consistency: 0,
+      },
+      total_score: 0,
+      decision: 'REVIEW_REQUIRED',
+      feedback: ['AI evaluation exception occurred. Submission queued for manual review.'],
+    };
+  }
+
   const now = new Date().toISOString();
 
   let processingStatus: 'COMPLETED' | 'REVIEW_REQUIRED' | 'FAILED' | 'DISQUALIFIED' = 'COMPLETED';
@@ -505,7 +535,7 @@ export async function triggerAIJudgeForSubmission(round2SubId: string): Promise<
 
   // Update team qualification status if passed or disqualified
   if (evalResult.decision === 'QUALIFIED') {
-    await updateTeamAndMembers(sub.team_id, { status: 'QUALIFIED' });
+    await updateTeamAndMembers(sub.team_id, { status: 'QUALIFIED', current_round: 3 });
   } else if (evalResult.decision === 'DISQUALIFIED' || evalResult.safety.status === 'FAIL') {
     await updateTeamAndMembers(sub.team_id, { status: 'DISQUALIFIED' });
   }

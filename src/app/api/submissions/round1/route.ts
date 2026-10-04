@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentTeamSession, getIsAdminSession } from '@/lib/auth';
-import { getRound1Submission, upsertRound1Submission, getRoundSettings } from '@/lib/db-service';
+import { getRound1Submission, upsertRound1Submission, getRoundSettings, getTeamWithMembers, updateTeamAndMembers } from '@/lib/db-service';
+import { validateRound1Submission } from '@/lib/ai/validator';
 
 export async function GET(req: NextRequest) {
   const teamSession = await getCurrentTeamSession();
@@ -22,8 +23,6 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ success: true, submission });
 }
 
-import { validateRound1Submission } from '@/lib/ai/validator';
-
 export async function POST(req: NextRequest) {
   const teamSession = await getCurrentTeamSession();
   if (!teamSession) {
@@ -31,15 +30,24 @@ export async function POST(req: NextRequest) {
   }
 
   const roundSettings = await getRoundSettings();
-  if (roundSettings.round1 === 'CLOSED') {
+  if (roundSettings.round1 !== 'OPEN') {
     return NextResponse.json({ error: 'Round 1 is currently locked by competition organizers.' }, { status: 403 });
+  }
+
+  const team = await getTeamWithMembers(teamSession.team_id);
+  if (!team) {
+    return NextResponse.json({ error: 'Team not found or session invalid.' }, { status: 404 });
+  }
+
+  if (team.status === 'DISQUALIFIED' || team.status === 'ELIMINATED') {
+    return NextResponse.json({ error: 'Your team is disqualified from the competition.' }, { status: 403 });
   }
 
   const body = await req.json();
 
   // Check if existing submission is locked
   const existing = await getRound1Submission(teamSession.team_id);
-  if (existing && existing.status === 'SUBMITTED') {
+  if (existing && (existing.status === 'SUBMITTED' || existing.status === 'LOCKED')) {
     return NextResponse.json({ error: 'Round 1 submission is already submitted and locked.' }, { status: 422 });
   }
 
@@ -56,5 +64,10 @@ export async function POST(req: NextRequest) {
     team_id: teamSession.team_id,
   });
 
+  if (result.status === 'SUBMITTED' && team.current_round < 2) {
+    await updateTeamAndMembers(teamSession.team_id, { current_round: 2 });
+  }
+
   return NextResponse.json({ success: true, submission: result });
 }
+

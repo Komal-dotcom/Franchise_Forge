@@ -13,7 +13,7 @@ export default function Round3Page() {
     promotional_asset_s3_path: '',
   });
 
-  const [status, setStatus] = useState<'DRAFT' | 'SUBMITTED' | 'PENDING_AI' | 'EVALUATED'>('DRAFT');
+  const [status, setStatus] = useState<'DRAFT' | 'SUBMITTED' | 'PENDING_AI' | 'EVALUATED' | 'LOCKED'>('DRAFT');
   const [evaluation, setEvaluation] = useState<any>(null);
   const [isRound3Open, setIsRound3Open] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -108,8 +108,7 @@ export default function Round3Page() {
       if (!res.ok) throw new Error(data.error || 'Failed to save submission.');
 
       setStatus(data.submission.status);
-      if (data.evaluation) setEvaluation(data.evaluation);
-      setSuccessMsg(isSubmit ? '✓ ROUND 3 SUBMITTED AND EVALUATED BY AI JUDGE!' : 'Draft saved.');
+      setSuccessMsg(isSubmit ? '✓ ROUND 3 MARKETING FORGE SUBMITTED! Present your pitch live to the judging panel.' : 'Draft saved successfully.');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -117,7 +116,7 @@ export default function Round3Page() {
     }
   };
 
-  const isLocked = status === 'SUBMITTED' || status === 'EVALUATED';
+  const isLocked = status === 'SUBMITTED' || status === 'EVALUATED' || status === 'LOCKED';
 
   if (loading) {
     return (
@@ -169,7 +168,7 @@ export default function Round3Page() {
         {isLocked && (
           <div className="px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 font-bold text-xs flex items-center space-x-2">
             <CheckCircle2 className="w-4 h-4" />
-            <span>✓ SUBMITTED & EVALUATED</span>
+            <span>✓ SUBMITTED & LOCKED FOR OFFLINE PRESENTATION</span>
           </div>
         )}
       </div>
@@ -188,73 +187,16 @@ export default function Round3Page() {
         </div>
       )}
 
-      {/* AI Judge Evaluation Result Card */}
-      {evaluation && (
-        <div className="mb-8 p-6 rounded-2xl glass-panel border border-violetGlow/40 space-y-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-studio-800">
-            <div>
-              <div className="flex items-center space-x-2 mb-1">
-                <Sparkles className="w-5 h-5 text-violetGlow" />
-                <h3 className="text-lg font-black text-white">ROUND 3 AI JUDGE EVALUATION</h3>
-              </div>
-              <p className="text-xs text-gray-400">Automated AI assessment of marketing strategy, tagline, & pitch copy</p>
-            </div>
-
-            <div className="flex items-center space-x-3">
-              <span className={`px-3 py-1 rounded-full text-xs font-black uppercase border ${
-                evaluation.decision === 'WINNER_CANDIDATE'
-                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                  : evaluation.decision === 'QUALIFIED'
-                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                  : 'bg-red-500/20 text-red-400 border-red-500/40'
-              }`}>
-                {evaluation.decision}
-              </span>
-              <div className="px-4 py-2 rounded-xl bg-studio-900 border border-studio-700 text-right">
-                <div className="text-2xl font-black text-violetGlow">{evaluation.total_score}<span className="text-xs text-gray-500">/100</span></div>
-                <div className="text-[10px] text-gray-400 font-bold">TOTAL SCORE</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Rubric Score Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            <div className="p-3 rounded-xl bg-studio-900 border border-studio-800 text-center">
-              <div className="text-xs text-gray-400 mb-1">Marketing</div>
-              <div className="text-lg font-bold text-white">{evaluation.marketing_strategy_score}<span className="text-xs text-gray-500">/25</span></div>
-            </div>
-            <div className="p-3 rounded-xl bg-studio-900 border border-studio-800 text-center">
-              <div className="text-xs text-gray-400 mb-1">Tagline</div>
-              <div className="text-lg font-bold text-white">{evaluation.tagline_punch_score}<span className="text-xs text-gray-500">/20</span></div>
-            </div>
-            <div className="p-3 rounded-xl bg-studio-900 border border-studio-800 text-center">
-              <div className="text-xs text-gray-400 mb-1">Audience</div>
-              <div className="text-lg font-bold text-white">{evaluation.audience_engagement_score}<span className="text-xs text-gray-500">/20</span></div>
-            </div>
-            <div className="p-3 rounded-xl bg-studio-900 border border-studio-800 text-center">
-              <div className="text-xs text-gray-400 mb-1">Copywriting</div>
-              <div className="text-lg font-bold text-white">{evaluation.copywriting_quality_score}<span className="text-xs text-gray-500">/20</span></div>
-            </div>
-            <div className="p-3 rounded-xl bg-studio-900 border border-studio-800 text-center">
-              <div className="text-xs text-gray-400 mb-1">Poster</div>
-              <div className="text-lg font-bold text-white">{evaluation.visual_poster_quality_score}<span className="text-xs text-gray-500">/15</span></div>
-            </div>
-          </div>
-
-          {/* AI Executive Feedback */}
-          {evaluation.feedback && evaluation.feedback.length > 0 && (
-            <div className="space-y-2 pt-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">AI Executive Feedback & Insights:</h4>
-              <ul className="space-y-1">
-                {evaluation.feedback.map((item: string, idx: number) => (
-                  <li key={idx} className="text-xs text-gray-300 flex items-start space-x-2">
-                    <span className="text-violetGlow font-bold">›</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+      {/* Offline Presentation Information Banner */}
+      {isLocked && (
+        <div className="mb-8 p-6 rounded-2xl glass-panel border border-violetGlow/40 space-y-2">
+          <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span>SUBMISSION LOCKED & CONFIRMED FOR OFFLINE JUDGING</span>
+          </h3>
+          <p className="text-xs text-gray-300 leading-relaxed">
+            Your Marketing Forge portfolio is locked and available to competition organizers. Present your live pitch offline to the judging panel during your scheduled presentation time!
+          </p>
         </div>
       )}
 
