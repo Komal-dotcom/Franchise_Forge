@@ -27,6 +27,7 @@ import {
   getTeamsWithFullInspection,
   addFinalScore,
   getFinalScoresForTeam,
+  resetDatabaseForTesting,
 } from '../src/lib/db-service';
 import { parseCSV, processAndValidateCSV } from '../src/lib/csv-importer';
 import { inMemoryDB } from '../src/lib/supabase';
@@ -45,13 +46,8 @@ describe('PHASE 5: OFFLINE FINAL PITCH & TOP 5 REALIGNMENT SUITE', () => {
   beforeEach(async () => {
     mockCookieStore.clear();
 
-    inMemoryDB.teams.clear();
-    inMemoryDB.teamMembers.clear();
-    inMemoryDB.round1Submissions.clear();
-    inMemoryDB.round2Submissions.clear();
-    inMemoryDB.aiEvaluations.clear();
-    inMemoryDB.round3Submissions.clear();
-    inMemoryDB.finalScores.clear();
+    await resetDatabaseForTesting();
+    await updateRoundSettings({ top5_locked: false, round1: 'OPEN', round2: 'CLOSED', round3: 'CLOSED' });
 
     const parsed = parseCSV(sampleCSV);
     const summary = await processAndValidateCSV(parsed.data);
@@ -63,7 +59,7 @@ describe('PHASE 5: OFFLINE FINAL PITCH & TOP 5 REALIGNMENT SUITE', () => {
     teamCyberId = cyber!.id;
     teamNeonId = neon!.id;
 
-    adminToken = await createAdminToken('admin');
+    adminToken = await createAdminToken();
     mockCookieStore.set(ADMIN_SESSION_COOKIE, adminToken);
   });
 

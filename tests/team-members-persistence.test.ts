@@ -4,6 +4,7 @@ import {
   getTeamByCode,
   getTeamWithMembers,
   reconcileTeamMembersData,
+  resetDatabaseForTesting,
 } from '../src/lib/db-service';
 import { parseCSV, processAndValidateCSV } from '../src/lib/csv-importer';
 import { inMemoryDB } from '../src/lib/supabase';
@@ -17,9 +18,7 @@ Studio Nova,Aman,aman@email.com,9876543221,3,B`;
 
 describe('TEAM MEMBERS SUPABASE DATA CONSISTENCY ENGINE', () => {
   beforeEach(async () => {
-    // Clear in-memory database maps before each test
-    inMemoryDB.teams.clear();
-    inMemoryDB.teamMembers.clear();
+    await resetDatabaseForTesting();
   });
 
   it('should persist all 2-3 members correctly during CSV import with matching canonical team_id', async () => {

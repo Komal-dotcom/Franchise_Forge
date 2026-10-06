@@ -1,8 +1,35 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'mock-anon-key';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL && typeof window === 'undefined') {
+  try {
+    const dotenv = require('dotenv');
+    dotenv.config({ path: '.env.local' });
+    dotenv.config();
+  } catch (e) {}
+}
+
+const isProduction = process.env.NODE_ENV === 'production';
+
+let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+let supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+let supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (isProduction) {
+  if (!supabaseUrl || supabaseUrl.includes('localhost') || supabaseUrl.includes('127.0.0.1')) {
+    throw new Error('[Supabase Configuration Error] NEXT_PUBLIC_SUPABASE_URL is missing or set to localhost in production.');
+  }
+  if (!supabaseAnonKey || supabaseAnonKey === 'mock-anon-key') {
+    throw new Error('[Supabase Configuration Error] NEXT_PUBLIC_SUPABASE_ANON_KEY is missing or invalid in production.');
+  }
+  if (typeof window === 'undefined' && (!supabaseServiceKey || supabaseServiceKey === 'mock-anon-key')) {
+    throw new Error('[Supabase Configuration Error] SUPABASE_SERVICE_ROLE_KEY is missing or invalid in production.');
+  }
+}
+
+// Fallback values for non-production offline testing
+supabaseUrl = supabaseUrl || 'http://localhost:54321';
+supabaseAnonKey = supabaseAnonKey || 'mock-anon-key';
+supabaseServiceKey = supabaseServiceKey || supabaseAnonKey;
 
 // Public client for client-side operations (subject to RLS)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

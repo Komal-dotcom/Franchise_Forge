@@ -17,6 +17,7 @@ import {
   getFinalScoresForTeam,
   resetTeamProgress,
   getAuditLogs,
+  resetDatabaseForTesting,
 } from '../src/lib/db-service';
 import { parseCSV, processAndValidateCSV } from '../src/lib/csv-importer';
 import { deleteTeamS3Assets } from '../src/lib/s3';
@@ -35,6 +36,8 @@ describe('SAFE ADMIN-ONLY TEAM RESET FEATURE', () => {
   let phoenixAccessCode: string;
 
   beforeEach(async () => {
+    await resetDatabaseForTesting();
+
     // Seed initial teams into inMemoryDB
     const { data } = parseCSV(sampleCSV);
     const summary = await processAndValidateCSV(data);

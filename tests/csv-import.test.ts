@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { parseCSV, processAndValidateCSV } from '../src/lib/csv-importer';
-import { commitImportedTeams, getTeamByCode, getRoundSettings, updateRoundSettings } from '../src/lib/db-service';
+import { commitImportedTeams, getTeamByCode, getRoundSettings, updateRoundSettings, resetDatabaseForTesting } from '../src/lib/db-service';
 import { verifyAccessCode } from '../src/lib/auth';
 
 const validCSV = `team_name,member_name,email,phone_number,semester,section
@@ -20,6 +20,9 @@ Studio Quad,Member 3,m3@email.com,9000000003,1,A
 Studio Quad,Member 4,m4@email.com,9000000004,1,A`;
 
 describe('CSV Importer Validation Engine', () => {
+  beforeEach(async () => {
+    await resetDatabaseForTesting();
+  });
   it('should parse valid CSV headers and rows accurately', () => {
     const { data, errors } = parseCSV(validCSV);
     expect(errors).toHaveLength(0);

@@ -177,13 +177,13 @@ export async function seedDemoData() {
 
   // Seed Supabase if connected
   try {
-    await supabaseAdmin.from('teams').upsert([team2], { onConflict: 'id' });
+    const { access_code, ...teamDbRecord } = team2;
+    await supabaseAdmin.from('teams').upsert([teamDbRecord], { onConflict: 'id' });
     await supabaseAdmin.from('team_members').upsert([...membersTeam2], { onConflict: 'id' });
     await supabaseAdmin.from('round1_submissions').upsert([r1Sub2], { onConflict: 'id' });
     await supabaseAdmin.from('round2_submissions').upsert([r2Sub2], { onConflict: 'id' });
     await supabaseAdmin.from('ai_evaluations').upsert([aiEval2], { onConflict: 'id' });
     await supabaseAdmin.from('round3_submissions').upsert([r3Sub2], { onConflict: 'id' });
-    await supabaseAdmin.from('round3_manual_scores').upsert([r3ManualScore2], { onConflict: 'id' });
     console.log('✅ Successfully seeded Supabase database tables!');
   } catch (err) {
     console.log('ℹ️ Live Supabase not reachable, seeded in-memory database store.');

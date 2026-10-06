@@ -29,11 +29,12 @@ export async function logAuditEvent(params: LogAuditParams): Promise<void> {
     metadata: params.metadata || {},
   };
 
-  // Always keep in memory store
+  // Keep in-memory store updated
   inMemoryDB.auditLogs.unshift(auditEntry);
 
   try {
-    const res = supabaseAdmin.from('audit_logs').insert({
+    const { error } = await supabaseAdmin.from('audit_logs').insert({
+      id: auditEntry.id,
       actor: params.actor,
       action: params.action,
       entity: params.entity,
@@ -47,24 +48,18 @@ export async function logAuditEvent(params: LogAuditParams): Promise<void> {
       },
     });
 
-    if (res && typeof (res as any).then === 'function') {
-      (res as any).then(() => {}, () => {});
+    if (error) {
+      console.error('[Audit Log Error] Failed to persist audit log to Supabase:', error);
     }
   } catch (err) {
-    // Graceful fallback for local offline environment
+    // Graceful fallback logging
   }
 }
-
-
 
 /**
  * Retrieves audit logs ordered by newest first
  */
 export async function getAuditLogs(limit = 100): Promise<AuditLog[]> {
-  if (inMemoryDB.auditLogs.length > 0) {
-    return inMemoryDB.auditLogs.slice(0, limit);
-  }
-
   try {
     const { data, error } = await supabaseAdmin
       .from('audit_logs')
@@ -73,7 +68,18 @@ export async function getAuditLogs(limit = 100): Promise<AuditLog[]> {
       .limit(limit);
 
     if (!error && data && data.length > 0) {
-      return data as AuditLog[];
+      return data.map((item: any) => ({
+        id: item.id,
+        actor: item.actor,
+        action: item.action,
+        entity: item.entity,
+        entity_id: item.entity_id,
+        timestamp: item.timestamp,
+        reason: item.reason || item.metadata?.reason,
+        previous_value: item.previous_value || item.metadata?.previous_value,
+        new_value: item.new_value || item.metadata?.new_value,
+        metadata: item.metadata || {},
+      })) as AuditLog[];
     }
   } catch (err) {
     // Fall back to memory DB

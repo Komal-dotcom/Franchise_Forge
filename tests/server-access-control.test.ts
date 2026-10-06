@@ -24,6 +24,7 @@ import {
   triggerAIJudgeForSubmission,
   updateTeamAndMembers,
   getRoundSettings,
+  resetDatabaseForTesting,
 } from '../src/lib/db-service';
 import { parseCSV, processAndValidateCSV } from '../src/lib/csv-importer';
 import { inMemoryDB } from '../src/lib/supabase';
@@ -50,13 +51,7 @@ describe('SERVER-SIDE ROUND ENFORCEMENT & SECURITY SUITE', () => {
   beforeEach(async () => {
     mockCookieStore.clear();
 
-    // Reset settings & database
-    inMemoryDB.teams.clear();
-    inMemoryDB.teamMembers.clear();
-    inMemoryDB.round1Submissions.clear();
-    inMemoryDB.round2Submissions.clear();
-    inMemoryDB.aiEvaluations.clear();
-    inMemoryDB.round3Submissions.clear();
+    await resetDatabaseForTesting();
 
     // Reset round settings to defaults (Round 1 OPEN, Round 2 CLOSED, Round 3 CLOSED)
     await updateRoundSettings({ round1: 'OPEN', round2: 'CLOSED', round3: 'CLOSED' });
